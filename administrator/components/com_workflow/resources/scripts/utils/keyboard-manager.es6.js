@@ -60,11 +60,20 @@ export function setupGlobalShortcuts({
       let { x, y } = currentPosition;
 
       switch (direction) {
-        case 'ArrowUp': y -= moveBy; break;
-        case 'ArrowDown': y += moveBy; break;
-        case 'ArrowLeft': x -= moveBy; break;
-        case 'ArrowRight': x += moveBy; break;
-        default: return;
+        case 'ArrowUp':
+          y -= moveBy;
+          break;
+        case 'ArrowDown':
+          y += moveBy;
+          break;
+        case 'ArrowLeft':
+          x -= moveBy;
+          break;
+        case 'ArrowRight':
+          x += moveBy;
+          break;
+        default:
+          return;
       }
 
       store.dispatch('updateStagePosition', { id: stageId, x, y });
@@ -147,11 +156,20 @@ export function setupGlobalShortcuts({
         } else if (e.shiftKey) {
           const panStep = 20;
           switch (e.code) {
-            case 'ArrowUp': viewport.value.y += panStep; break;
-            case 'ArrowDown': viewport.value.y -= panStep; break;
-            case 'ArrowLeft': viewport.value.x += panStep; break;
-            case 'ArrowRight': viewport.value.x -= panStep; break;
-            default: break;
+            case 'ArrowUp':
+              viewport.value.y += panStep;
+              break;
+            case 'ArrowDown':
+              viewport.value.y -= panStep;
+              break;
+            case 'ArrowLeft':
+              viewport.value.x += panStep;
+              break;
+            case 'ArrowRight':
+              viewport.value.x -= panStep;
+              break;
+            default:
+              break;
           }
         } else {
           const reverse = ['ArrowLeft', 'ArrowUp'].includes(e.code);
