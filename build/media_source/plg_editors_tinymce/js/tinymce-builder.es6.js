@@ -431,7 +431,8 @@ const TinyMCEBuilder = (container, options) => {
   });
 };
 
-const options = Joomla.getOptions ? Joomla.getOptions('plg_editors_tinymce_builder', {})
+const options = Joomla.getOptions
+  ? Joomla.getOptions('plg_editors_tinymce_builder', {})
   : (Joomla.optionsStorage.plg_editors_tinymce_builder || {});
 
 const builder = document.getElementById('joomla-tinymce-builder');
