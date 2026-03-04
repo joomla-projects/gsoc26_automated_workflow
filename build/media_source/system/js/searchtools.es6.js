@@ -184,9 +184,9 @@ Joomla = window.Joomla || {};
       // Do we need to add to mark filter as enabled?
       this.getFilterFields().forEach((i) => {
         const needsFormSubmit = !i.classList.contains(this.options.listSelectAutoSubmit)
-        && i.closest(`joomla-field-fancy-select.${this.options.listSelectAutoSubmit}`);
+          && i.closest(`joomla-field-fancy-select.${this.options.listSelectAutoSubmit}`);
         const needsFormReset = !i.classList.contains(this.options.listSelectAutoReset)
-        && i.closest(`joomla-field-fancy-select.${this.options.listSelectAutoReset}`);
+          && i.closest(`joomla-field-fancy-select.${this.options.listSelectAutoReset}`);
 
         self.checkFilter(i);
         i.addEventListener('change', () => {
@@ -366,7 +366,6 @@ Joomla = window.Joomla || {};
         filteredByCaption.textContent += captionContent;
       }
     }
-
 
     deactiveFilter(element) {
       element.classList.remove('active');
