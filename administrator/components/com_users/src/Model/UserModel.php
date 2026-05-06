@@ -339,7 +339,7 @@ class UserModel extends AdminModel implements UserFactoryAwareInterface
                     $user_to_delete = $this->getUserFactory()->loadUserById($pk);
 
                     // Fire the before delete event.
-                    Factory::getApplication()->triggerEvent($this->event_before_delete, [$table->getProperties()]);
+                    Factory::getApplication()->triggerEvent($this->event_before_delete, [ArrayHelper::fromObject($table, false)]);
 
                     if (!$table->delete($pk)) {
                         $this->setError($table->getError());
@@ -399,7 +399,7 @@ class UserModel extends AdminModel implements UserFactoryAwareInterface
                 unset($pks[$i]);
                 Factory::getApplication()->enqueueMessage(Text::_('COM_USERS_USERS_ERROR_CANNOT_BLOCK_SELF'), 'error');
             } elseif ($table->load($pk)) {
-                $old   = $table->getProperties();
+                $old   = ArrayHelper::fromObject($table, false);
                 $allow = $user->authorise('core.edit.state', 'com_users');
 
                 // Don't allow non-super-admin to delete a super admin
@@ -428,7 +428,7 @@ class UserModel extends AdminModel implements UserFactoryAwareInterface
                         }
 
                         // Trigger the before save event.
-                        $result = Factory::getApplication()->triggerEvent($this->event_before_save, [$old, false, $table->getProperties()]);
+                        $result = Factory::getApplication()->triggerEvent($this->event_before_save, [$old, false, ArrayHelper::fromObject($table, false)]);
 
                         if (\in_array(false, $result, true)) {
                             // Plugin will have to raise its own error or throw an exception.
@@ -447,7 +447,7 @@ class UserModel extends AdminModel implements UserFactoryAwareInterface
                         }
 
                         // Trigger the after save event
-                        Factory::getApplication()->triggerEvent($this->event_after_save, [$table->getProperties(), false, true, null]);
+                        Factory::getApplication()->triggerEvent($this->event_after_save, [ArrayHelper::fromObject($table, false), false, true, null]);
                     } catch (\Exception $e) {
                         $this->setError($e->getMessage());
 
@@ -542,7 +542,7 @@ class UserModel extends AdminModel implements UserFactoryAwareInterface
         // Activate and send the notification email
         foreach ($pks as $i => $pk) {
             if ($table->load($pk)) {
-                $prevUserData = $table->getProperties();
+                $prevUserData = ArrayHelper::fromObject($table, false);
                 $allow        = $user->authorise('core.edit.state', 'com_users');
 
                 // Don't allow non-super-admin to edit the active status of a super admin
@@ -569,7 +569,7 @@ class UserModel extends AdminModel implements UserFactoryAwareInterface
                         }
 
                         // Trigger the before save event.
-                        $result = Factory::getApplication()->triggerEvent($this->event_before_save, [$prevUserData, false, $table->getProperties()]);
+                        $result = Factory::getApplication()->triggerEvent($this->event_before_save, [$prevUserData, false, ArrayHelper::fromObject($table, false)]);
 
                         if (\in_array(false, $result, true)) {
                             // Plugin will have to raise it's own error or throw an exception.
@@ -584,7 +584,7 @@ class UserModel extends AdminModel implements UserFactoryAwareInterface
                         }
 
                         // Fire the after save event
-                        Factory::getApplication()->triggerEvent($this->event_after_save, [$table->getProperties(), false, true, null]);
+                        Factory::getApplication()->triggerEvent($this->event_after_save, [ArrayHelper::fromObject($table, false), false, true, null]);
 
                         // Send the email
                         if (!$sendMailTo($prevUserData)) {
