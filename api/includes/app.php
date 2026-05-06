@@ -40,6 +40,10 @@ $container->alias('session', 'session.cli')
     ->alias(\Joomla\Session\Session::class, 'session.cli')
     ->alias(\Joomla\Session\SessionInterface::class, 'session.cli');
 
+if (file_exists(JPATH_CONFIGURATION . '/bootstrap.php')) {
+    require_once JPATH_CONFIGURATION . '/bootstrap.php';
+}
+
 // Instantiate the application.
 $app = $container->get(\Joomla\CMS\Application\ApiApplication::class);
 
