@@ -49,7 +49,7 @@ RUN sed -i 's|/var/www/html|/workspaces/joomla-cms|g' /etc/apache2/sites-availab
 # Enable Apache's rewrite module and set the ServerName to prevent warnings
 RUN a2enmod rewrite \
     && echo "ServerName localhost" >> /etc/apache2/apache2.conf
-    
+
 RUN apt-get update && apt-get install -y ssl-cert && \
     a2enmod ssl && \
     a2ensite 000-default && \
