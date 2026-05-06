@@ -704,12 +704,26 @@ class TaskModel extends AdminModel
 
         if ($ruleClass === 'cron-expression') {
             // ! custom matches are disabled in the form
-            $matches         = $executionRules['cron-expression'];
+            $matches = $executionRules['cron-expression'];
             $buildExpression .= $this->wildcardIfMatch($matches['minutes'], range(0, 59), true);
             $buildExpression .= ' ' . $this->wildcardIfMatch($matches['hours'], range(0, 23), true);
             $buildExpression .= ' ' . $this->wildcardIfMatch($matches['days_month'], range(1, 31), true);
             $buildExpression .= ' ' . $this->wildcardIfMatch($matches['months'], range(1, 12), true);
-            $buildExpression .= ' ' . $this->wildcardIfMatch($matches['days_week'], range(0, 6), true);
+            $daysWeek = array_map('intval', $matches['days_week']);
+            sort($daysWeek);
+
+            // Normalize Sunday (7 → 0)
+            $normalized = array_map(function ($d) {
+                return $d === 7 ? 0 : $d;
+            }, $daysWeek);
+
+            sort($normalized);
+
+            if ($normalized === range(0, 6)) {
+                $buildExpression .= ' *';
+            } else {
+                $buildExpression .= ' ' . implode(',', $daysWeek);
+            }
         }
 
         return [
