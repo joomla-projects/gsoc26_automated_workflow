@@ -787,23 +787,49 @@
 
 				if (self.params.weekNumbers) {
 					H.addEventListener("change", function (event) {
-						self.updateTime(event.target.parentNode.parentNode.childNodes[1].childNodes[0].value,
-							event.target.parentNode.parentNode.childNodes[2].childNodes[0].value,
-							event.target.parentNode.parentNode.childNodes[3].childNodes[0].value);
+						// Since the DOM order is reversed in RTL, we must reverse the order of child nodes.
+						if (self.params.direction === 'rtl') {
+							self.updateTime(event.target.parentNode.parentNode.childNodes[2].childNodes[0].value,
+								event.target.parentNode.parentNode.childNodes[1].childNodes[0].value,
+								event.target.parentNode.parentNode.childNodes[3].childNodes[0].value);
+						} else {
+							self.updateTime(event.target.parentNode.parentNode.childNodes[1].childNodes[0].value,
+								event.target.parentNode.parentNode.childNodes[2].childNodes[0].value,
+								event.target.parentNode.parentNode.childNodes[3].childNodes[0].value);
+						}
 					}, false);
 					M.addEventListener("change", function (event) {
-						self.updateTime(event.target.parentNode.parentNode.childNodes[1].childNodes[0].value,
-							event.target.parentNode.parentNode.childNodes[2].childNodes[0].value,
-							event.target.parentNode.parentNode.childNodes[3].childNodes[0].value);
+						// Since the DOM order is reversed in RTL, we must reverse the order of child nodes.
+						if (self.params.direction === 'rtl') {
+							self.updateTime(event.target.parentNode.parentNode.childNodes[2].childNodes[0].value,
+								event.target.parentNode.parentNode.childNodes[1].childNodes[0].value,
+								event.target.parentNode.parentNode.childNodes[3].childNodes[0].value);
+						} else {
+							self.updateTime(event.target.parentNode.parentNode.childNodes[1].childNodes[0].value,
+								event.target.parentNode.parentNode.childNodes[2].childNodes[0].value,
+								event.target.parentNode.parentNode.childNodes[3].childNodes[0].value);
+						}
 					}, false);
 				} else {
 					H.addEventListener("change", function (event) {
-						self.updateTime(event.target.parentNode.parentNode.childNodes[1].childNodes[0].value,
-							event.target.parentNode.parentNode.childNodes[2].childNodes[0].value);
+						// Since the DOM order is reversed in RTL, we must reverse the order of child nodes.
+						if (self.params.direction === 'rtl') {
+							self.updateTime(event.target.parentNode.parentNode.childNodes[2].childNodes[0].value,
+								event.target.parentNode.parentNode.childNodes[1].childNodes[0].value);
+						} else {
+							self.updateTime(event.target.parentNode.parentNode.childNodes[1].childNodes[0].value,
+								event.target.parentNode.parentNode.childNodes[2].childNodes[0].value);
+						}
 					}, false);
 					M.addEventListener("change", function (event) {
-						self.updateTime(event.target.parentNode.parentNode.childNodes[1].childNodes[0].value,
-							event.target.parentNode.parentNode.childNodes[2].childNodes[0].value);
+						// Since the DOM order is reversed in RTL, we must reverse the order of child nodes.
+						if (self.params.direction === 'rtl') {
+							self.updateTime(event.target.parentNode.parentNode.childNodes[2].childNodes[0].value,
+								event.target.parentNode.parentNode.childNodes[1].childNodes[0].value);
+						} else {
+							self.updateTime(event.target.parentNode.parentNode.childNodes[1].childNodes[0].value,
+								event.target.parentNode.parentNode.childNodes[2].childNodes[0].value);
+						}
 					}, false);
 				}
 			})();
@@ -865,6 +891,30 @@
 				self.date = Date.parseFieldDate(self.inputField.getAttribute('data-alt-value'), self.params.dateFormat, self.params.dateType, self.strings);
 			}
 			self.close();
+		});
+
+		// Validate the date and time when they are manually entered in the input field.
+		this.inputField.addEventListener('change', function (e) {
+			e.preventDefault();
+			if (self.inputField.value) {
+				if (self.params.dateType !== 'gregorian') {
+					self.inputField.setAttribute('data-local-value', self.inputField.value);
+					// We need to transform the date for the data-alt-value
+					var ndate, date = Date.parseFieldDate(self.inputField.value, self.params.dateFormat, self.params.dateType, self.strings);
+					ndate = Date.localCalToGregorian(date.getFullYear(), date.getMonth(), date.getDate());
+					date.setFullYear(ndate[0]);
+					date.setMonth(ndate[1]);
+					date.setDate(ndate[2]);
+					self.inputField.setAttribute('data-alt-value', date.print(self.params.dateFormat, 'gregorian', false, self.strings));
+				} else {
+					// We set the date for the data-alt-value
+					self.inputField.setAttribute('data-alt-value', Date.parseFieldDate(self.inputField.value, self.params.dateFormat, self.params.dateType, self.strings)
+						.print(self.params.dateFormat, 'gregorian', false, self.strings));
+				}
+			} else {
+				self.inputField.setAttribute('data-alt-value', '0000-00-00 00:00:00');
+			}
+			self.date = Date.parseFieldDate(self.inputField.getAttribute('data-alt-value'), self.params.dateFormat, self.params.dateType, self.strings);
 		});
 
 		this.processCalendar();
