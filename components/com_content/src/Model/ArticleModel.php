@@ -76,6 +76,56 @@ class ArticleModel extends ItemModel
     }
 
     /**
+     * Check if the current request is an admin preview (without requiring shared sessions).
+     *
+     * @return bool
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    protected function isAdminPreview(): bool
+    {
+        $app   = Factory::getApplication();
+        $input = $app->getInput();
+
+        if (!$input->getInt('preview', 0)) {
+            return false;
+        }
+
+        $token = $input->getString('preview_token', '');
+
+        if (empty($token)) {
+            return false;
+        }
+
+        $db      = $this->getDatabase();
+        $pk      = (int) $this->getState('article.id');
+        $nowDate = Factory::getDate()->toSql();
+
+        $query = $db->createQuery()
+            ->select($db->quoteName('user_id'))
+            ->from($db->quoteName('#__content_preview_tokens'))
+            ->where($db->quoteName('token') . ' = :token')
+            ->where($db->quoteName('article_id') . ' = :pk')
+            ->where($db->quoteName('expires') . ' >= :now')
+            ->bind(':token', $token)
+            ->bind(':pk', $pk, \Joomla\Database\ParameterType::INTEGER)
+            ->bind(':now', $nowDate);
+
+        $db->setQuery($query);
+        $userId = (int) $db->loadResult();
+
+        if (!$userId) {
+            return false;
+        }
+
+        $previewUser = Factory::getContainer()
+            ->get(\Joomla\CMS\User\UserFactoryInterface::class)
+            ->loadUserById($userId);
+
+        return $previewUser->authorise('core.edit.state', 'com_content');
+    }
+
+    /**
      * Method to get article data.
      *
      * @param   integer  $pk  The id of the article.
@@ -149,7 +199,7 @@ class ArticleModel extends ItemModel
                             $db->quoteName('parent.alias', 'parent_alias'),
                             $db->quoteName('parent.language', 'parent_language'),
                             'ROUND(' . $db->quoteName('v.rating_sum') . ' / ' . $db->quoteName('v.rating_count') . ', 1) AS '
-                                . $db->quoteName('rating'),
+                            . $db->quoteName('rating'),
                             $db->quoteName('v.rating_count', 'rating_count'),
                         ]
                     )
@@ -176,9 +226,12 @@ class ArticleModel extends ItemModel
                     $query->whereIn($db->quoteName('a.language'), [Factory::getLanguage()->getTag(), '*'], ParameterType::STRING);
                 }
 
+                $isPreview = $this->isAdminPreview();
+
                 if (
                     !$user->authorise('core.edit.state', 'com_content.article.' . $pk)
                     && !$user->authorise('core.edit', 'com_content.article.' . $pk)
+                    && !$isPreview
                 ) {
                     // Filter by start and end dates.
                     $nowDate = Factory::getDate()->toSql();
@@ -206,7 +259,7 @@ class ArticleModel extends ItemModel
                 $published = $this->getState('filter.published');
                 $archived  = $this->getState('filter.archived');
 
-                if (is_numeric($published)) {
+                if (is_numeric($published) && !$isPreview) {
                     $query->whereIn($db->quoteName('a.state'), [(int) $published, (int) $archived]);
                 }
 
@@ -219,7 +272,7 @@ class ArticleModel extends ItemModel
                 }
 
                 // Check for published state if filter set.
-                if ((is_numeric($published) || is_numeric($archived)) && ($data->state != $published && $data->state != $archived)) {
+                if ((is_numeric($published) || is_numeric($archived)) && ($data->state != $published && $data->state != $archived) && !$isPreview) {
                     throw new \Exception(Text::_('COM_CONTENT_ERROR_ARTICLE_NOT_FOUND'), 404);
                 }
 

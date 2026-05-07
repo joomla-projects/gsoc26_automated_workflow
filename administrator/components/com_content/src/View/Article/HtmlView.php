@@ -62,10 +62,48 @@ class HtmlView extends FormView
             $config['option'] = 'com_content';
         }
 
-        $config['help_link']      = 'Articles:_Edit';
-        $config['toolbar_icon']   = 'pencil-alt article-add';
+        $config['help_link']    = 'Articles:_Edit';
+        $config['toolbar_icon'] = 'pencil-alt article-add';
 
         parent::__construct($config);
+    }
+
+    /**
+     * Generate a signed time-limited preview token and persist it.
+     *
+     * @param   int  $articleId
+     *
+     * @return  string
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    protected function generatePreviewToken(?int $articleId): string
+    {
+        if (empty($articleId)) {
+            return '';
+        }
+        $user    = $this->getCurrentUser();
+        $token   = bin2hex(random_bytes(16)); // 32-char hex token
+        $expires = Factory::getDate('+5 minutes')->toSql();
+
+        $db  = Factory::getContainer()->get(\Joomla\Database\DatabaseInterface::class);
+        $row = (object) [
+            'token'      => $token,
+            'user_id'    => $user->id,
+            'article_id' => $articleId,
+            'expires'    => $expires,
+        ];
+
+        // Clean up expired tokens first
+        $db->setQuery(
+            $db->createQuery()
+                ->delete($db->quoteName('#__content_preview_tokens'))
+                ->where($db->quoteName('expires') . ' < ' . $db->quote(Factory::getDate()->toSql()))
+        )->execute();
+
+        $db->insertObject('#__content_preview_tokens', $row);
+
+        return $token;
     }
 
     /**
@@ -87,8 +125,10 @@ class HtmlView extends FormView
 
         $url = RouteHelper::getArticleRoute($this->item->id . ':' . $this->item->alias, $this->item->catid, $this->item->language);
 
-        $this->previewLink = $url;
-        $this->jooa11yLink = $url . '&jooa11y=1';
+        // Generate a signed, time-limited preview token and store it in the DB
+        $previewToken      = $this->generatePreviewToken($this->item->id);
+        $this->previewLink = $url . '&preview=1&preview_token=' . $previewToken;
+        $this->jooa11yLink = $url . '&jooa11y=1&preview=1&preview_token=' . $previewToken;
 
         if ($this->getLayout() === 'modalreturn') {
             return;
