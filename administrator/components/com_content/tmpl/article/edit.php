@@ -22,10 +22,12 @@ use Joomla\Registry\Registry;
 
 /** @var Joomla\CMS\WebAsset\WebAssetManager $wa */
 $wa = $this->getDocument()->getWebAssetManager();
+
 $wa->getRegistry()->addExtensionRegistryFile('com_contenthistory');
 $wa->useScript('keepalive')
     ->useScript('form.validate')
     ->useScript('com_contenthistory.admin-history-versions');
+$wa->registerAndUseScript('com_content.article-editor-enhancements', 'administrator/components/com_content/tmpl/article/article-editor-enhancements.js', [], ['defer' => true]);
 
 $this->configFieldsets  = ['editorConfig'];
 $this->hiddenFieldsets  = ['basic-limited'];
