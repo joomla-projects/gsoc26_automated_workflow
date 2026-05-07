@@ -67,7 +67,7 @@ const fixVersion = async (file) => {
     if (firstLine.includes('/*') && !firstLine.includes('/*!')) {
       const endCommentIdx = content.indexOf('*/');
       if (endCommentIdx !== -1
-          && (content.substring(0, endCommentIdx).includes('license')
+        && (content.substring(0, endCommentIdx).includes('license')
           || content.substring(0, endCommentIdx).includes('copyright'))
       ) {
         content = firstLine.includes('/**') ? content.replace('/**', '/*!') : content.replace('/*', '/*!');
