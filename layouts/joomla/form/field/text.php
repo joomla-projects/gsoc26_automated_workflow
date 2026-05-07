@@ -48,7 +48,7 @@ extract($displayData);
  * @var   string   $accept          File types that are accepted.
  * @var   string   $dataAttribute   Miscellaneous data attributes preprocessed for HTML output
  * @var   array    $dataAttributes  Miscellaneous data attribute for eg, data-*.
- * @var   string   $dirname         The directory name
+ * @var   string   $dirname         Name of the form field direction (ltr or rtl).
  * @var   string   $addonBefore     The text to use in a bootstrap input group prepend
  * @var   string   $addonAfter      The text to use in a bootstrap input group append
  * @var   boolean  $charcounter     Does this field support a character counter?
