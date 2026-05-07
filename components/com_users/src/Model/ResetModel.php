@@ -18,6 +18,7 @@ use Joomla\CMS\Language\Text;
 use Joomla\CMS\Log\Log;
 use Joomla\CMS\Mail\MailTemplate;
 use Joomla\CMS\MVC\Model\FormModel;
+use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\CMS\Router\Route;
 use Joomla\CMS\String\PunycodeHelper;
 use Joomla\CMS\User\User;
@@ -190,7 +191,7 @@ class ResetModel extends FormModel implements UserFactoryAwareInterface
                 'subject' => $user,
             ]
         );
-        $app->getDispatcher()->dispatch($event->getName(), $event);
+        $this->getDispatcher()->dispatch($event->getName(), $event);
 
         // Check for a user and that the tokens match.
         if (empty($user) || $user->activation !== $token) {
@@ -240,7 +241,7 @@ class ResetModel extends FormModel implements UserFactoryAwareInterface
                 'subject' => $user,
             ]
         );
-        $app->getDispatcher()->dispatch($event->getName(), $event);
+        $this->getDispatcher()->dispatch($event->getName(), $event);
 
         return true;
     }
@@ -284,6 +285,18 @@ class ResetModel extends FormModel implements UserFactoryAwareInterface
             return false;
         }
 
+        PluginHelper::importPlugin('authentication', null, true, $this->getDispatcher());
+
+        $event = AbstractEvent::create(
+            'onUserBeforeResetConfirm',
+            [
+                'subject'  => $this,
+                'username' => $data['username']
+            ]
+        );
+        $data['username'] = $this->getDispatcher()->dispatch($event->getName(), $event)
+            ->getArgument('username', $data['username']);
+        
         // Find the user id for the given token.
         $db    = $this->getDatabase();
         $query = $db->createQuery()
@@ -442,7 +455,7 @@ class ResetModel extends FormModel implements UserFactoryAwareInterface
                 'subject' => $user,
             ]
         );
-        $app->getDispatcher()->dispatch($event->getName(), $event);
+        $this->getDispatcher()->dispatch($event->getName(), $event);
 
         // Save the user to the database.
         if (!$user->save(true)) {
@@ -490,7 +503,7 @@ class ResetModel extends FormModel implements UserFactoryAwareInterface
                 'subject' => $user,
             ]
         );
-        $app->getDispatcher()->dispatch($event->getName(), $event);
+        $this->getDispatcher()->dispatch($event->getName(), $event);
 
         return true;
     }
