@@ -90,6 +90,7 @@ class TagsSimilarHelper implements DatabaseAwareInterface
                     $db->quoteName('cc.core_catid'),
                     $db->quoteName('cc.core_language'),
                     $db->quoteName('cc.core_params'),
+                    $db->quoteName('cc.core_images'),
                 ]
             )
             ->from($db->quoteName('#__contentitem_tag_map', 'm'))
@@ -174,6 +175,7 @@ class TagsSimilarHelper implements DatabaseAwareInterface
                 $db->quoteName('cc.core_catid'),
                 $db->quoteName('cc.core_language'),
                 $db->quoteName('cc.core_params'),
+                $db->quoteName('cc.core_images'),
             ]
         );
 
