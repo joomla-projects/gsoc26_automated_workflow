@@ -14,6 +14,7 @@ use Joomla\CMS\Application\ApplicationHelper;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Helper\ContentHelper;
 use Joomla\CMS\Language\Text;
+use Joomla\CMS\Uri\Uri;
 
 // phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;
@@ -148,5 +149,17 @@ class ConfigHelper extends ContentHelper
         // Load extension-local file.
         $lang->load($component . '.sys', JPATH_BASE)
         || $lang->load($component . '.sys', JPATH_ADMINISTRATOR . '/components/' . $component);
+    }
+
+    /**
+     * Returns the absolute OAuth2 callback URL for the administrator request controller.
+     *
+     * @return  string
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public static function getOAuth2CallbackUrl(): string
+    {
+        return Uri::root() . 'administrator/index.php?option=com_config&task=request.oauth2callback&format=raw';
     }
 }
