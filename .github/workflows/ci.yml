@@ -60,7 +60,7 @@ jobs:
     needs: [composer]
     strategy:
       matrix:
-        command: ['php-cs-fixer fix -vvv --dry-run --diff', 'phpcs --extensions=php -p --standard=ruleset.xml .']
+        command: ['php-cs-fixer fix -vvv', 'phpcbf --extensions=php -p --standard=ruleset.xml .']
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -68,9 +68,17 @@ jobs:
           path: libraries/vendor
           key: ${{ runner.os }}-composer-${{ hashFiles('composer.lock') }}
       - name: Check PHP code style
+        id: check-codestyle
+        continue-on-error: true
         env:
           PHP_CS_FIXER_IGNORE_ENV: true
-        run: ./libraries/vendor/bin/${{ matrix.command }}
+        run: |
+          git config --global --add safe.directory $GITHUB_WORKSPACE
+          ./libraries/vendor/bin/${{ matrix.command }}
+      - uses: parkerbxyz/suggest-changes@v3
+        with:
+          comment: 'Your code does not meet our codestyle requirements. Please commit the suggested changes.'
+          event: 'REQUEST_CHANGES'
 
   code-style-js-css:
     name: Check Javascript & CSS code style
