@@ -454,6 +454,29 @@
 		/>
 
 		<field
+			name="float_intro"
+			type="text"
+			label="COM_CONTENT_IMAGE_INTRO_CLASS_LABEL"
+			validate="CssIdentifier"
+			showon="show_urls_images_backend:1[OR]show_urls_images_frontend:1"
+		/>
+
+		<field
+			name="float_fulltext"
+			type="text"
+			label="COM_CONTENT_IMAGE_FULLTEXT_CLASS_LABEL"
+			validate="CssIdentifier"
+			showon="show_urls_images_backend:1[OR]show_urls_images_frontend:1"
+		/>
+
+		<field
+			name="spacer4"
+			type="spacer"
+			hr="true"
+			showon="show_urls_images_backend:1[OR]show_urls_images_frontend:1"
+		/>
+
+		<field
 			name="targeta"
 			type="list"
 			label="COM_CONTENT_URL_FIELD_A_BROWSERNAV_LABEL"
@@ -497,29 +520,6 @@
 			<option value="2">JBROWSERTARGET_POPUP</option>
 			<option value="3">JBROWSERTARGET_MODAL</option>
 		</field>
-
-		<field
-			name="spacer4"
-			type="spacer"
-			hr="true"
-			showon="show_urls_images_backend:1[OR]show_urls_images_frontend:1"
-		/>
-
-		<field
-			name="float_intro"
-			type="text"
-			label="COM_CONTENT_IMAGE_INTRO_CLASS_LABEL"
-			validate="CssIdentifier"
-			showon="show_urls_images_backend:1[OR]show_urls_images_frontend:1"
-		/>
-
-		<field
-			name="float_fulltext"
-			type="text"
-			label="COM_CONTENT_IMAGE_FULLTEXT_CLASS_LABEL"
-			validate="CssIdentifier"
-			showon="show_urls_images_backend:1[OR]show_urls_images_frontend:1"
-		/>
 	</fieldset>
 	<fieldset
 		name="category"
