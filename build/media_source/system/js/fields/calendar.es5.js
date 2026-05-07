@@ -507,42 +507,56 @@
 	};
 
 	/** Method to handle keyboard click events **/
-	JoomlaCalendar.prototype._handleCalKeyEvent = function (ev) {
+JoomlaCalendar.prototype._handleCalKeyEvent = function (ev) {
 		var self = this,
 			code = ev.code;
-
-		// Get value from input
 		if (ev.target === this.inputField && (code === 'Enter' || code === 'Tab')) {
 			this.close();
+			return;
 		}
-
 		if (self.params.direction === 'rtl') {
-			if (code === 'ArrowLeft') {
-				code = 'ArrowRight';
-			} else if (code === 'ArrowRight') {
-				code = 'ArrowLeft';
-			}
+			if (code === 'ArrowLeft') code = 'ArrowRight';
+			else if (code === 'ArrowRight') code = 'ArrowLeft';
 		}
 
 		if (ev.shiftKey && code === 'Space') {
 			ev.preventDefault();
 			this.cellClick(self._nav_now, ev);
 			self.close();
+			return;
 		}
+
 		if (code === 'Escape') {
 			this.close();
+			return;
 		}
-		if (code === 'ArrowUp') {
-			this.moveCursorBy(7);
-		}
-		if (code === 'ArrowDown') {
-			this.moveCursorBy(-7);
-		}
-		if (code === 'ArrowLeft') {
-			this.moveCursorBy(1);
-		}
-		if (code === 'ArrowRight') {
-			this.moveCursorBy(-1);
+
+		switch (code) {
+			case 'ArrowUp':
+				this.moveCursorBy(7);
+				break;
+			case 'ArrowDown':
+				this.moveCursorBy(-7);
+				break;
+			case 'ArrowLeft':
+                if (
+                    ev.target === this.inputField ||
+                    (ev.target.classList && ev.target.classList.contains('time'))
+                ) {
+                    break;
+                }
+                this.moveCursorBy(1);
+                break;
+
+            case 'ArrowRight':
+                if (
+                    ev.target === this.inputField ||
+                    (ev.target.classList && ev.target.classList.contains('time'))
+                ) {
+                    break;
+                }
+                this.moveCursorBy(-1);
+                break;
 		}
 	};
 
