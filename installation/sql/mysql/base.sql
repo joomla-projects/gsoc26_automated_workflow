@@ -1301,27 +1301,11 @@ CREATE TABLE IF NOT EXISTS `#__workflow_stage_log` (
 	`extension` varchar(50) NOT NULL,
 	`stage_id` int NOT NULL COMMENT 'Foreign Key to #__workflow_stages.id',
 	`entered_at` datetime NOT NULL COMMENT 'When the item arrived in stage_id',
-	PRIMARY KEY (`id`),
-	UNIQUE ID `idx_item_extension` (`item_id`, `extension`),
-	KEY `idx_stage_entered` (`stage_id`, `entered_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 DEFAULT COLLATE=utf8mb4_unicode_ci;
-
---
--- Table structure for table `#__workflow_item_schedule`
---
-
-CREATE TABLE IF NOT EXISTS `#__workflow_item_schedule` (
-	`id` int NOT NULL AUTO_INCREMENT,
-	`item_id` int NOT NULL DEFAULT 0 COMMENT 'Extension table id value'
-	`extension` varchar(50) NOT NULL,
-	`transition_id` int NOT NULL COMMENT 'Foreign Key to #__workflow_transitions.id',
-	`scheduled_at` datetime NOT NULL COMMENT 'Fire the transition at this datetime',
-	`locked` datetime NOT NULL,
-	`created` datetime NOT NULL,
-	`created_by` int NOT NULL DEFAULT 0,
+	`next_transition_at` datetime NULL,
 	PRIMARY KEY (`id`),
 	UNIQUE KEY `idx_item_extension` (`item_id`, `extension`),
-	KEY `idx_scheduled_at` (`scheduled_at`)
+	KEY `idx_stage_entered` (`stage_id`, `entered_at`),
+	KEY `idx_next_transition_at` (`next_transition_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 DEFAULT COLLATE=utf8mb4_unicode_ci;
 
 --
@@ -1331,14 +1315,13 @@ CREATE TABLE IF NOT EXISTS `#__workflow_item_schedule` (
 CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (
 	`id` int NOT NULL AUTO_INCREMENT,
 	`rule_id` int DEFAULT NULL COMMENT 'Foreign Key to #__workflow_transition_automation.id',
-	`schedule_id` int DEFAULT NULL COMMENT 'Foreign Key to #__workflow_item_schedule.id',
 	`item_id` int NOT NULL DEFAULT 0,
 	`extension` varchar(50) NOT NULL,
 	`transition_id` int NOT NULL,
 	`from_stage_id` int NOT NULL DEFAULT 0,
 	`to_stage_id` int NOT NULL DEFAULT 0,
 	`run_as_user_id` int NOT NULL DEFAULT 0,
-	`trigger_type` varchar(20) NOT NULL DEFAULT 'rule' COMMENT 'rule or item_schedule',
+	`trigger_type` varchar(20) NOT NULL DEFAULT 'rule',
 	`exit_code` tinyint NOT NULL DEFAULT 0 COMMENT '0 ok, 1 permission denied, 2 invalid transition, 3 exception',
 	`note` varchar(500) DEFAULT NULL,
 	`executed_at` datetime NOT NULL,
