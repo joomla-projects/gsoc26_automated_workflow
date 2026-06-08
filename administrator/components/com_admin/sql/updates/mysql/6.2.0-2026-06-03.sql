@@ -1,23 +1,23 @@
 CREATE TABLE IF NOT EXISTS `#__workflow_transition_automation` (
     `id` int NOT NULL AUTO_INCREMENT,
     `transition_id` int NOT NULL COMMENT 'Foreign Key to #__workflow_transitions.id',
-    `enabled` tinyint NOT NULL DEFAULT 0,
+    `published` tinyint NOT NULL DEFAULT 0,
     `rule_type` varchar(20) NOT NULL DEFAULT 'interval' COMMENT 'interval or cron',
     `interval_value` int DEFAULT NULL,
     `interval_unit` varchar(10) DEFAULT NULL COMMENT 'minutes, hours, days, months',
     `cron_expression` varchar(100) DEFAULT NULL,
     `run_as_user_id` int NOT NULL DEFAULT 0 COMMENT 'User identity used to execute the transition',
     `loop_mode` tinyint NOT NULL DEFAULT 0 COMMENT 'Chain into the target stage rule when set',
-    `locked` datetime DEFAULT NULL COMMENT 'Row-level lock while a task run is processing this rule',
+    `locked_until` datetime DEFAULT NULL COMMENT 'Lock expiry: NULL means unlocked',
     `created` datetime NOT NULL,
     `created_by` int NOT NULL DEFAULT 0,
     `modified` datetime NOT NULL,
     `modified_by` int NOT NULL DEFAULT 0,
     PRIMARY KEY (`id`),
     UNIQUE KEY `idx_transition` (`transition_id`),
-    KEY `idx_enabled` (`enabled`),
+    KEY `idx_published` (`published`),
     KEY `idx_run_as` (`run_as_user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `#__workflow_stage_log` (
     `id` int NOT NULL AUTO_INCREMENT,
@@ -29,8 +29,8 @@ CREATE TABLE IF NOT EXISTS `#__workflow_stage_log` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `idx_item_extension` (`item_id`, `extension`),
     KEY `idx_stage_entered` (`stage_id`, `entered_at`),
-	KEY `idx_next_transition_at` (`next_transition_at`)
-) ENGINE=InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
+    KEY `idx_next_transition_at` (`next_transition_at`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (
     `id` int NOT NULL AUTO_INCREMENT,
@@ -50,4 +50,4 @@ CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (
     KEY `idx_item_id` (`item_id`),
     KEY `idx_executed_at` (`executed_at`),
     KEY `idx_exit_code` (`exit_code`)
-) ENGINE=InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
