@@ -1265,3 +1265,69 @@ INSERT INTO `#__workflow_transitions` (`id`, `asset_id`, `published`, `ordering`
 (5, 62, 1, 5, 1, 'FEATURE', '', -1, 1, '{"featuring":"1"}'),
 (6, 63, 1, 6, 1, 'UNFEATURE', '', -1, 1, '{"featuring":"0"}'),
 (7, 64, 1, 7, 1, 'PUBLISH_AND_FEATURE', '', -1, 1, '{"publishing":"1","featuring":"1"}');
+
+--
+-- Table structure for table `#__workflow_transition_automation`
+--
+
+CREATE TABLE IF NOT EXISTS `#__workflow_transition_automation` (
+	`id` int NOT NULL AUTO_INCREMENT,
+	`transition_id` int NOT NULL COMMENT 'Foreign Key to #__workflow_transitions.id',
+	`published` tinyint NOT NULL DEFAULT 0,
+	`rule_type` varchar(20) NOT NULL DEFAULT 'interval' COMMENT 'interval or cron',
+	`interval_value` int DEFAULT NULL,
+	`interval_unit` varchar(10) DEFAULT NULL COMMENT 'minutes, hours, days, months',
+	`cron_expression` varchar(100) DEFAULT NULL,
+	`run_as_user_id` int NOT NULL DEFAULT 0 COMMENT 'User identity used to execute the transition',
+	`loop_mode` tinyint NOT NULL DEFAULT 0 COMMENT 'Chain into the target stage rule when set',
+	`locked_until` datetime DEFAULT NULL COMMENT 'Lock expiry: NULL means unlocked',
+	`created` datetime NOT NULL,
+	`created_by` int NOT NULL DEFAULT 0,
+	`modified` datetime NOT NULL,
+	`modified_by` int NOT NULL DEFAULT 0,
+	PRIMARY KEY (`id`),
+	UNIQUE KEY `idx_transition` (`transition_id`),
+	KEY `idx_published` (`published`),
+	KEY `idx_run_as` (`run_as_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 DEFAULT COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `#__workflow_stage_log`
+--
+
+CREATE TABLE IF NOT EXISTS `#__workflow_stage_log` (
+	`id` int NOT NULL AUTO_INCREMENT,
+	`item_id` int NOT NULL DEFAULT 0 COMMENT 'Extension table id value',
+	`extension` varchar(50) NOT NULL,
+	`stage_id` int NOT NULL COMMENT 'Foreign Key to #__workflow_stages.id',
+	`entered_at` datetime NOT NULL COMMENT 'When the item arrived in stage_id',
+	`next_transition_at` datetime NULL,
+	PRIMARY KEY (`id`),
+	UNIQUE KEY `idx_item_extension` (`item_id`, `extension`),
+	KEY `idx_stage_entered` (`stage_id`, `entered_at`),
+	KEY `idx_next_transition_at` (`next_transition_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 DEFAULT COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `#__workflow_automation_log`
+--
+
+CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (
+	`id` int NOT NULL AUTO_INCREMENT,
+	`rule_id` int DEFAULT NULL COMMENT 'Foreign Key to #__workflow_transition_automation.id',
+	`item_id` int NOT NULL DEFAULT 0,
+	`extension` varchar(50) NOT NULL,
+	`transition_id` int NOT NULL,
+	`from_stage_id` int NOT NULL DEFAULT 0,
+	`to_stage_id` int NOT NULL DEFAULT 0,
+	`run_as_user_id` int NOT NULL DEFAULT 0,
+	`trigger_type` varchar(20) NOT NULL DEFAULT 'rule',
+	`exit_code` tinyint NOT NULL DEFAULT 0 COMMENT '0 ok, 1 permission denied, 2 invalid transition, 3 exception',
+	`note` varchar(500) DEFAULT NULL,
+	`executed_at` datetime NOT NULL,
+	PRIMARY KEY (`id`),
+	KEY `idx_rule_id` (`rule_id`),
+	KEY `idx_item_id` (`item_id`),
+	KEY `idx_executed_at` (`executed_at`),
+	KEY `idx_exit_code` (`exit_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 DEFAULT COLLATE=utf8mb4_unicode_ci;
