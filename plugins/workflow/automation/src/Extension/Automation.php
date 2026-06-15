@@ -4,7 +4,9 @@ namespace Joomla\Plugin\Workflow\Automation\Extension;
 
 use DateInterval;
 use DateTime;
+use Joomla\CMS\Event\Model\AfterSaveEvent;
 use Joomla\CMS\Event\Workflow\WorkflowTransitionEvent;
+use Joomla\CMS\Factory;
 use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\Database\DatabaseAwareTrait;
 use Joomla\Database\ParameterType;
@@ -22,6 +24,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
     {
         return [
             'onWorkflowAfterTransition' => 'logStageEntry',
+            'onContentAfterSave' => 'reevaluateOnChange',
         ];
     }
 
@@ -33,7 +36,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
 
         $toStageId = (int) $transition->to_stage_id;
 
-        $now = \Joomla\CMS\Factory::getDate()->toSql();
+        $now = Factory::getDate()->toSql();
 
         $rule = $this->findRuleForStage($toStageId);
 
@@ -97,6 +100,57 @@ final class Automation extends CMSPlugin implements SubscriberInterface
             }
             $db->setQuery($query)->execute();
         }
+    }
+
+    public function reevaluateOnChange(AfterSaveEvent $event): void
+    {
+        $context = $event->getContext();
+        $table = $event->getItem();
+        $itemId = (int) $table->id;
+        $db = $this->getDatabase();
+
+        // load this item's stage log entry
+        $query = $db->getQuery(true)
+        ->select($db->quoteName(['id', 'stage_id', 'entered_at', 'next_transition_at']))
+        ->from($db->quoteName('#__workflow_stage_log'))
+        ->where($db->quoteName('item_id') . ' = :itemId')
+        ->where($db->quoteName('extension') . ' = :extension')
+        ->bind(':itemId', $itemId, ParameterType::INTEGER)
+        ->bind(':extension', $context);
+
+        $log = $db->setQuery($query)->loadObject();
+
+        // Nothing to do if item is not being automated
+        if (!$log || $log->next_transition_at === null) {
+            return;
+        }
+
+        $now = Factory::getDate()->toSql();
+
+        // Already flaged for immediate check, scheduler will pick it up
+        if ($log->next_transition_at <= $now) {
+            return;
+        }
+
+        $rules = $this->findRuleForStage((int) $log->stage_id);
+
+        foreach ($rules as $rule) {
+            $deadline = $this->computeNextTransitionAt($log->entered_at, $rule);
+
+            if ($deadline !== null && $deadline <= $now) {
+                $update = $db->getQuery(true)
+                    ->update($db->quoteName('#__workflow_stage_log'))
+                    ->set($db->quoteName('next_transition_at') . ' = :now')
+                    ->where($db->quoteName('id') . ' = :logId')
+                    ->bind(':now', $now)
+                    ->bind(':logId', $log->id, ParameterType::INTEGER);
+
+                $db->setQuery($update)->execute();
+
+                return;
+            }
+        }
+
     }
 
     private function findRuleForStage(int $stageId): ?object
