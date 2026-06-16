@@ -30,17 +30,15 @@ final class Automation extends CMSPlugin implements SubscriberInterface
 
     public function logStageEntry(WorkflowTransitionEvent $event): void
     {
-        $pks = $event->getArgument('pks');
-        $context = $event->getArgument('extension');
-        $transition = $event->getArgument('transition');
+        $pks         = $event->getArgument('pks');
+        $context     = $event->getArgument('extension');
+        $transition  = $event->getArgument('transition');
+        $toStageId   = (int) $transition->to_stage_id;
+        $now         = Factory::getDate()->toSql();
+        $triggeredBy = Factory::getApplication()->get('workflow.triggered_by', 'manual');
 
-        $toStageId = (int) $transition->to_stage_id;
-
-        $now = Factory::getDate()->toSql();
-
-        $rule = $this->findRuleForStage($toStageId);
-
-        $nextTransitionAt = $rule ? $this->computeNextTransitionAt($now, $rule): null;
+        $rules            = $this->findRulesForStage($toStageId);
+        $nextTransitionAt = $this->computeEarliestNextTransitionAt($now, $rules);
 
         $db = $this->getDatabase();
 
@@ -50,13 +48,12 @@ final class Automation extends CMSPlugin implements SubscriberInterface
             $query = $db->getQuery(true)
                 ->select($db->quoteName('id'))
                 ->from($db->quoteName('#__workflow_stage_log'))
-                ->where($db->quoteName('item_id'). ' = :itemId')
-                ->where($db->quoteName('extension') . ' =:extension')
+                ->where($db->quoteName('item_id') . ' = :itemId')
+                ->where($db->quoteName('extension') . ' = :extension')
                 ->bind(':itemId', $pk, ParameterType::INTEGER)
                 ->bind(':extension', $context);
 
-            $db->setQuery($query);
-            $existingId = (int) $db->loadResult();
+            $existingId = (int) $db->setQuery($query)->loadResult();
 
             if ($existingId) {
                 $query = $db->getQuery(true)
@@ -65,39 +62,50 @@ final class Automation extends CMSPlugin implements SubscriberInterface
                     ->bind(':id', $existingId, ParameterType::INTEGER)
                     ->bind(':stageId', $toStageId, ParameterType::INTEGER)
                     ->bind(':enteredAt', $now)
-                    ->bind(':nexTransitionAt', $nextTransitionAt);
+                    ->bind(':triggeredBy', $triggeredBy);
+
                 if ($nextTransitionAt === null) {
-                    $query->set($db->quoteName('next_transition_at') . ' = NULL')
-                          ->set($db->quoteName('stage_id') . ' = :stageId')
-                          ->set($db->quoteName('entered_at') . ' = :enteredAt');
+                    $query->set($db->quoteName('stage_id') . ' = :stageId')
+                        ->set($db->quoteName('entered_at') . ' = :enteredAt')
+                        ->set($db->quoteName('next_transition_at') . ' = NULL')
+                        ->set($db->quoteName('triggered_by') . ' = :triggeredBy');
                 } else {
                     $query->set($db->quoteName('stage_id') . ' = :stageId')
-                          ->set($db->quoteName('entered_at') . ' = :enteredAt')
-                          ->set($db->quoteName('next_transition_at') . ' = :nextTransitionAt');
+                        ->set($db->quoteName('entered_at') . ' = :enteredAt')
+                        ->set($db->quoteName('next_transition_at') . ' = :nextTransitionAt')
+                        ->set($db->quoteName('triggered_by') . ' = :triggeredBy')
+                        ->bind(':nextTransitionAt', $nextTransitionAt);
                 }
             } else {
                 $query = $db->getQuery(true)
                     ->insert($db->quoteName('#__workflow_stage_log'))
                     ->columns($db->quoteName([
-                        'item_id', 'extension', 'stage_id',
-                        'entered_at', 'next_transition_at',
+                        'item_id',
+                        'extension',
+                        'stage_id',
+                        'entered_at',
+                        'next_transition_at',
+                        'triggered_by',
                     ]));
 
-                    if ($nextTransitionAt === null) {
-                        $query->values(':itemId, :extension, :stageId, :enteredAt, NULL')
-                              ->bind(':itemId', $pk, ParameterType::INTEGER)
-                              ->bind(':extension', $context)
-                              ->bind(':stageId', $toStageId, ParameterType::INTEGER)
-                              ->bind(':enteredAt', $now);
-                    } else {
-                        $query->values(':itemId, :extension, :stageId, :enteredAt, :nextTransitionAt')
-                              ->bind(':itemId', $pk, ParameterType::INTEGER)
-                              ->bind(':extension', $context)
-                              ->bind(':stageId', $toStageId, ParameterType::INTEGER)
-                              ->bind(':enteredAt', $now)
-                              ->bind(':nextTransitionAt', $nextTransitionAt);
-                    }
+                if ($nextTransitionAt === null) {
+                    $query->values(':itemId, :extension, :stageId, :enteredAt, NULL, :triggeredBy')
+                        ->bind(':itemId', $pk, ParameterType::INTEGER)
+                        ->bind(':extension', $context)
+                        ->bind(':stageId', $toStageId, ParameterType::INTEGER)
+                        ->bind(':enteredAt', $now)
+                        ->bind(':triggeredBy', $triggeredBy);
+                } else {
+                    $query->values(':itemId, :extension, :stageId, :enteredAt, :nextTransitionAt, :triggeredBy')
+                        ->bind(':itemId', $pk, ParameterType::INTEGER)
+                        ->bind(':extension', $context)
+                        ->bind(':stageId', $toStageId, ParameterType::INTEGER)
+                        ->bind(':enteredAt', $now)
+                        ->bind(':nextTransitionAt', $nextTransitionAt)
+                        ->bind(':triggeredBy', $triggeredBy);
+                }
             }
+
             $db->setQuery($query)->execute();
         }
     }
@@ -132,7 +140,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
             return;
         }
 
-        $rules = $this->findRuleForStage((int) $log->stage_id);
+        $rules = $this->findRulesForStage((int) $log->stage_id);
 
         foreach ($rules as $rule) {
             $deadline = $this->computeNextTransitionAt($log->entered_at, $rule);
@@ -153,31 +161,30 @@ final class Automation extends CMSPlugin implements SubscriberInterface
 
     }
 
-    private function findRuleForStage(int $stageId): ?object
+    private function findRulesForStage(int $stageId): array
     {
-        $db = $this->getDatabase();
+        $db    = $this->getDatabase();
         $query = $db->getQuery(true)
             ->select($db->quoteName([
                 'wta.interval_value',
                 'wta.interval_unit',
                 'wta.rule_type',
                 'wta.cron_expression',
+                'wta.ordering',
             ]))
             ->from($db->quoteName('#__workflow_transition_automation', 'wta'))
             ->join(
                 'INNER',
                 $db->quoteName('#__workflow_transitions', 'wt')
-                . ' ON ' . $db->quoteName('wta.transition_id')
-                . ' = ' . $db->quoteName('wt.id')
+                    . ' ON ' . $db->quoteName('wta.transition_id')
+                    . ' = ' . $db->quoteName('wt.id')
             )
             ->where($db->quoteName('wt.from_stage_id') . ' = :stageId')
             ->where($db->quoteName('wta.published') . ' = 1')
             ->bind(':stageId', $stageId, ParameterType::INTEGER)
-            ->setLimit(1);
+            ->order($db->quoteName('wta.ordering') . ' ASC');
 
-        $db->setQuery($query);
-
-        return $db->loadObject() ?: null;
+        return $db->setQuery($query)->loadObjectList() ?: [];
     }
 
     private function computeNextTransitionAt(string $enteredAt, object $rule): ?string
@@ -201,5 +208,24 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         }
 
         return $date->add($interval)->format('Y-m-d H:i:s');
+    }
+
+    private function computeEarliestNextTransitionAt(string $enteredAt, array $rules): ?string
+    {
+        $earliest = null;
+
+        foreach ($rules as $rule) {
+            $candidate = $this->computeNextTransitionAt($enteredAt, $rule);
+
+            if ($candidate === null) {
+                continue;
+            }
+
+            if ($earliest === null || $candidate < $earliest) {
+                $earliest = $candidate;
+            }
+        }
+
+        return $earliest;
     }
 }
