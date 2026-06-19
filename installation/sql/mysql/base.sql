@@ -1293,10 +1293,10 @@ CREATE TABLE IF NOT EXISTS `#__workflow_transition_automation` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 DEFAULT COLLATE=utf8mb4_unicode_ci;
 
 --
--- Table structure for table `#__workflow_stage_log`
+-- Table structure for table `#__workflow_automation_schedule`
 --
 
-CREATE TABLE IF NOT EXISTS `#__workflow_stage_log` (
+CREATE TABLE IF NOT EXISTS `#__workflow_automation_schedule` (
 	`id` int NOT NULL AUTO_INCREMENT,
 	`item_id` int NOT NULL DEFAULT 0 COMMENT 'Extension table id value',
 	`extension` varchar(50) NOT NULL,

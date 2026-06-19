@@ -47,7 +47,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         // One query to find which items already have a log entry
         $findExistingLogQuery = $db->getQuery(true)
             ->select($db->quoteName(['item_id', 'id']))
-            ->from($db->quoteName('#__workflow_stage_log'))
+            ->from($db->quoteName('#__workflow_automation_schedule'))
             ->whereIn($db->quoteName('item_id'), $pksInt)
             ->where($db->quoteName('extension') . ' = :extension')
             ->bind(':extension', $context);
@@ -70,7 +70,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
             $logIds = array_values($toUpdate);
 
             $updateStageLogQuery = $db->getQuery(true)
-                ->update($db->quoteName('#__workflow_stage_log'))
+                ->update($db->quoteName('#__workflow_automation_schedule'))
                 ->bind(':stageId', $toStageId, ParameterType::INTEGER)
                 ->bind(':enteredAt', $now)
                 ->bind(':triggeredBy', $triggeredBy);
@@ -97,7 +97,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         // Batch INSERT new rows
         if (!empty($toInsert)) {
             $insertStageLogQuery = $db->getQuery(true)
-                ->insert($db->quoteName('#__workflow_stage_log'))
+                ->insert($db->quoteName('#__workflow_automation_schedule'))
                 ->columns($db->quoteName([
                     'item_id',
                     'extension',
@@ -151,7 +151,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         // load this item's stage log entry
         $query = $db->getQuery(true)
         ->select($db->quoteName(['id', 'stage_id', 'entered_at', 'next_transition_at']))
-        ->from($db->quoteName('#__workflow_stage_log'))
+        ->from($db->quoteName('#__workflow_automation_schedule'))
         ->where($db->quoteName('item_id') . ' = :itemId')
         ->where($db->quoteName('extension') . ' = :extension')
         ->bind(':itemId', $itemId, ParameterType::INTEGER)
@@ -178,7 +178,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
 
             if ($deadline !== null && $deadline <= $now) {
                 $update = $db->getQuery(true)
-                    ->update($db->quoteName('#__workflow_stage_log'))
+                    ->update($db->quoteName('#__workflow_automation_schedule'))
                     ->set($db->quoteName('next_transition_at') . ' = :now')
                     ->where($db->quoteName('id') . ' = :logId')
                     ->bind(':now', $now)
