@@ -1303,7 +1303,7 @@ CREATE TABLE IF NOT EXISTS `#__workflow_stage_log` (
 	`stage_id` int NOT NULL COMMENT 'Foreign Key to #__workflow_stages.id',
 	`entered_at` datetime NOT NULL COMMENT 'When the item arrived in stage_id',
 	`next_transition_at` datetime NULL,
-	`triggered_by` varchar(10) NOT NULL DEFAULT 'manual' COMMENT 'Determine if a transition was triggered manually or by the automation',
+	`triggered_by` ENUM('manual', 'automation') NOT NULL DEFAULT 'manual' COMMENT 'Determine if a transition was triggered manually or by the automation',
 	PRIMARY KEY (`id`),
 	UNIQUE KEY `idx_item_extension` (`item_id`, `extension`),
 	KEY `idx_stage_entered` (`stage_id`, `entered_at`),

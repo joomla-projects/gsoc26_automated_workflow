@@ -30,9 +30,9 @@ final class Automation extends CMSPlugin implements SubscriberInterface
 
     public function logStageEntry(WorkflowTransitionEvent $event): void
     {
-        $pks         = $event->getArgument('pks');
-        $context     = $event->getArgument('extension');
-        $transition  = $event->getArgument('transition');
+        $pks = $event->getPks();
+        $context = $event->getExtension();
+        $transition = $event->getTransition();
         $toStageId   = (int) $transition->to_stage_id;
         $now         = Factory::getDate()->toSql();
         $triggeredBy = Factory::getApplication()->get('workflow.triggered_by', 'manual');
@@ -42,74 +42,105 @@ final class Automation extends CMSPlugin implements SubscriberInterface
 
         $db = $this->getDatabase();
 
-        foreach ($pks as $pk) {
-            $pk = (int) $pk;
+        $pksInt = array_map('intval', $pks);
 
-            $query = $db->getQuery(true)
-                ->select($db->quoteName('id'))
-                ->from($db->quoteName('#__workflow_stage_log'))
-                ->where($db->quoteName('item_id') . ' = :itemId')
-                ->where($db->quoteName('extension') . ' = :extension')
-                ->bind(':itemId', $pk, ParameterType::INTEGER)
-                ->bind(':extension', $context);
+        // One query to find which items already have a log entry
+        $findExistingLogQuery = $db->getQuery(true)
+            ->select($db->quoteName(['item_id', 'id']))
+            ->from($db->quoteName('#__workflow_stage_log'))
+            ->whereIn($db->quoteName('item_id'), $pksInt)
+            ->where($db->quoteName('extension') . ' = :extension')
+            ->bind(':extension', $context);
 
-            $existingId = (int) $db->setQuery($query)->loadResult();
+        $existingLogs = $db->setQuery($findExistingLogQuery)->loadAssocList('item_id', 'id');
 
-            if ($existingId) {
-                $query = $db->getQuery(true)
-                    ->update($db->quoteName('#__workflow_stage_log'))
-                    ->where($db->quoteName('id') . ' = :id')
-                    ->bind(':id', $existingId, ParameterType::INTEGER)
-                    ->bind(':stageId', $toStageId, ParameterType::INTEGER)
-                    ->bind(':enteredAt', $now)
-                    ->bind(':triggeredBy', $triggeredBy);
+        $toInsert = [];
+        $toUpdate = [];
 
-                if ($nextTransitionAt === null) {
-                    $query->set($db->quoteName('stage_id') . ' = :stageId')
-                        ->set($db->quoteName('entered_at') . ' = :enteredAt')
-                        ->set($db->quoteName('next_transition_at') . ' = NULL')
-                        ->set($db->quoteName('triggered_by') . ' = :triggeredBy');
-                } else {
-                    $query->set($db->quoteName('stage_id') . ' = :stageId')
-                        ->set($db->quoteName('entered_at') . ' = :enteredAt')
-                        ->set($db->quoteName('next_transition_at') . ' = :nextTransitionAt')
-                        ->set($db->quoteName('triggered_by') . ' = :triggeredBy')
-                        ->bind(':nextTransitionAt', $nextTransitionAt);
-                }
+        foreach ($pksInt as $pk) {
+            if (isset($existingLogs[$pk])) {
+                $toUpdate[$pk] = (int) $existingLogs[$pk];
             } else {
-                $query = $db->getQuery(true)
-                    ->insert($db->quoteName('#__workflow_stage_log'))
-                    ->columns($db->quoteName([
-                        'item_id',
-                        'extension',
-                        'stage_id',
-                        'entered_at',
-                        'next_transition_at',
-                        'triggered_by',
-                    ]));
+                $toInsert[] = $pk;
+            }
+        }
 
+        // Batch UPDATE existing rows
+        if (!empty($toUpdate)) {
+            $logIds = array_values($toUpdate);
+
+            $updateStageLogQuery = $db->getQuery(true)
+                ->update($db->quoteName('#__workflow_stage_log'))
+                ->bind(':stageId', $toStageId, ParameterType::INTEGER)
+                ->bind(':enteredAt', $now)
+                ->bind(':triggeredBy', $triggeredBy);
+
+            if ($nextTransitionAt === null) {
+                $updateStageLogQuery
+                    ->set($db->quoteName('stage_id') . ' = :stageId')
+                    ->set($db->quoteName('entered_at') . ' = :enteredAt')
+                    ->set($db->quoteName('next_transition_at') . ' = NULL')
+                    ->set($db->quoteName('triggered_by') . ' = :triggeredBy');
+            } else {
+                $updateStageLogQuery
+                    ->set($db->quoteName('stage_id') . ' = :stageId')
+                    ->set($db->quoteName('entered_at') . ' = :enteredAt')
+                    ->set($db->quoteName('next_transition_at') . ' = :nextTransitionAt')
+                    ->set($db->quoteName('triggered_by') . ' = :triggeredBy')
+                    ->bind(':nextTransitionAt', $nextTransitionAt);
+            }
+
+            $updateStageLogQuery->whereIn($db->quoteName('id'), $logIds);
+            $db->setQuery($updateStageLogQuery)->execute();
+        }
+
+        // Batch INSERT new rows
+        if (!empty($toInsert)) {
+            $insertStageLogQuery = $db->getQuery(true)
+                ->insert($db->quoteName('#__workflow_stage_log'))
+                ->columns($db->quoteName([
+                    'item_id',
+                    'extension',
+                    'stage_id',
+                    'entered_at',
+                    'next_transition_at',
+                    'triggered_by',
+                ]));
+
+            foreach ($toInsert as $pk) {
                 if ($nextTransitionAt === null) {
-                    $query->values(':itemId, :extension, :stageId, :enteredAt, NULL, :triggeredBy')
-                        ->bind(':itemId', $pk, ParameterType::INTEGER)
-                        ->bind(':extension', $context)
-                        ->bind(':stageId', $toStageId, ParameterType::INTEGER)
-                        ->bind(':enteredAt', $now)
-                        ->bind(':triggeredBy', $triggeredBy);
+                    $insertStageLogQuery->values(
+                        $db->quote($pk) . ', '
+                            . $db->quote($context) . ', '
+                            . $db->quote($toStageId) . ', '
+                            . $db->quote($now) . ', '
+                            . 'NULL, '
+                            . $db->quote($triggeredBy)
+                    );
                 } else {
-                    $query->values(':itemId, :extension, :stageId, :enteredAt, :nextTransitionAt, :triggeredBy')
-                        ->bind(':itemId', $pk, ParameterType::INTEGER)
-                        ->bind(':extension', $context)
-                        ->bind(':stageId', $toStageId, ParameterType::INTEGER)
-                        ->bind(':enteredAt', $now)
-                        ->bind(':nextTransitionAt', $nextTransitionAt)
-                        ->bind(':triggeredBy', $triggeredBy);
+                    $insertStageLogQuery->values(
+                        $db->quote($pk) . ', '
+                            . $db->quote($context) . ', '
+                            . $db->quote($toStageId) . ', '
+                            . $db->quote($now) . ', '
+                            . $db->quote($nextTransitionAt) . ', '
+                            . $db->quote($triggeredBy)
+                    );
                 }
             }
 
-            $db->setQuery($query)->execute();
+            $db->setQuery($insertStageLogQuery)->execute();
         }
     }
 
+    /**
+     * Re-evaluates the scheduled next transition when a content item is saved.
+     *
+     * If an item's conditions (e.g tags, category) change after it enters a stage,
+     * this hook checks whether any automation rule's deadline has already passed.
+     * If so, it sets next_transition_at to NOW() so the scheduler picks up the
+     * item on its next cycle rather than waiting for the original deadline.
+     */
     public function reevaluateOnChange(AfterSaveEvent $event): void
     {
         $context = $event->getContext();
