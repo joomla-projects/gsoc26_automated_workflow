@@ -1274,6 +1274,7 @@ CREATE TABLE IF NOT EXISTS `#__workflow_transition_automation` (
 	`id` int NOT NULL AUTO_INCREMENT,
 	`transition_id` int NOT NULL COMMENT 'Foreign Key to #__workflow_transitions.id',
 	`published` tinyint NOT NULL DEFAULT 0,
+	`ordering` int NOT NULL DEFAULT 0,
 	`rule_type` varchar(20) NOT NULL DEFAULT 'interval' COMMENT 'interval or cron',
 	`interval_value` int DEFAULT NULL,
 	`interval_unit` varchar(10) DEFAULT NULL COMMENT 'minutes, hours, days, months',
@@ -1292,16 +1293,17 @@ CREATE TABLE IF NOT EXISTS `#__workflow_transition_automation` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 DEFAULT COLLATE=utf8mb4_unicode_ci;
 
 --
--- Table structure for table `#__workflow_stage_log`
+-- Table structure for table `#__workflow_automation_schedule`
 --
 
-CREATE TABLE IF NOT EXISTS `#__workflow_stage_log` (
+CREATE TABLE IF NOT EXISTS `#__workflow_automation_schedule` (
 	`id` int NOT NULL AUTO_INCREMENT,
 	`item_id` int NOT NULL DEFAULT 0 COMMENT 'Extension table id value',
 	`extension` varchar(50) NOT NULL,
 	`stage_id` int NOT NULL COMMENT 'Foreign Key to #__workflow_stages.id',
 	`entered_at` datetime NOT NULL COMMENT 'When the item arrived in stage_id',
 	`next_transition_at` datetime NULL,
+	`triggered_by` ENUM('manual', 'automation') NOT NULL DEFAULT 'manual' COMMENT 'Determine if a transition was triggered manually or by the automation',
 	PRIMARY KEY (`id`),
 	UNIQUE KEY `idx_item_extension` (`item_id`, `extension`),
 	KEY `idx_stage_entered` (`stage_id`, `entered_at`),
