@@ -348,7 +348,7 @@ class Workflow
      *
      * @return  boolean
      */
-    public function executeTransition(array $pks, int $transitionId): bool
+    public function executeTransition(array $pks, int $transitionId, string $triggeredBy = 'manual'): bool
     {
         $pks = ArrayHelper::toInteger($pks);
         $pks = array_filter($pks);
@@ -414,6 +414,7 @@ class Workflow
                         'extension'  => $this->extension,
                         'pks'        => $pks,
                         'transition' => $transition,
+                        'triggeredBy' => $triggeredBy,
                     ]
                 )
             );

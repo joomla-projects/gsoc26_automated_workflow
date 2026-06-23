@@ -10,8 +10,10 @@
 
 namespace Joomla\Plugin\Task\WorkflowTransition\Extension;
 
+use Cron\CronExpression;
 use DateInterval;
 use DateTime;
+use DateTimeZone;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\CMS\Workflow\Workflow;
@@ -22,6 +24,7 @@ use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
 use Override;
 use Joomla\Component\Scheduler\Administrator\Task\Status as TaskStatus;
+use RuntimeException;
 
 \defined('_JEXEC') or die;
 
@@ -111,20 +114,22 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             }
 
             try {
-                Factory::getApplication()->set('workflow.triggered_by', 'automation');
+                $nowDateTime = new DateTime($now);
                 $transitionId = (int) $items[0]->transition_id;
 
                 foreach ($items as $item) {
                     $deadline = $this->computeDeadline($item->entered_at, $item);
 
-                    if ($deadline === null || $deadline > $now) {
+                    if ($deadline === null || $deadline > $nowDateTime) {
+                        // something goes here
+                        if ($deadline !== null) {
+                            $this->rescheduleItem((int) $item->schedule_id, $deadline);
+                        }
                         continue;
                     }
                     $workflow = new Workflow($item->extension);
-                    $workflow->executeTransition([(int) $item->item_id], $transitionId);
-                }
+                    $workflow->executeTransition([(int) $item->item_id], $transitionId, 'automation');                }
             } finally {
-                Factory::getApplication()->set('workflow.triggered_by', 'manual');
                 $this->unlockRule((int) $ruleId);
             }
         }
@@ -160,6 +165,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 $db->quoteName('wta.ordering'),
                 $db->quoteName('was.item_id'),
                 $db->quoteName('was.extension'),
+                $db->quoteName('was.id', 'schedule_id'),
                 $db->quoteName('was.entered_at'),
             ])
             ->from($db->quoteName('#__workflow_automation_schedule', 'was'))
@@ -252,14 +258,27 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * @param string $enteredAt When the item entered the stage (SQL datetime).
      * @param object $rule The automation rule row.
      *
-     * @return string|null SQL datetime of the deadline, or null if uncomputable.
-     *
+     * @return DateTime|null The deadline as a DateTime object, or null if uncomputable.
+     * 
      * @since 6.2.0
      */
-    private function computeDeadline(string $enteredAt, object $rule): ?string
+    private function computeDeadline(string $enteredAt, object $rule): ?DateTime
     {
         if ($rule->rule_type === 'cron') {
-            return null;
+            if (empty($rule->cron_expression)) {
+                throw new RuntimeException('Automation rule ' . $rule->rule_id . ' has rule_type cron but no cron_expression set.');
+            }
+
+            $cronExpression = new CronExpression($rule->cron_expression);
+            $deadline = $cronExpression->getNextRunDate(
+                $enteredAt,
+                0,
+                false,
+                Factory::getApplication()->get('offset', 'UTC')
+            );
+            $deadline->setTimezone(new DateTimeZone('UTC'));
+
+            return $deadline;
         }
 
         $date = new DateTime($enteredAt);
@@ -271,6 +290,35 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             default   => null,
         };
 
-        return $interval ? $date->add($interval)->format('Y-m-d H:i:s'): null;
+        return $interval ? $date->add($interval): null;
+    }
+
+    /**
+     * Corrects a stale next_transition_at value in the schedule table.
+     *
+     * Called when next_transition_at <= NOW() brought an item into the batch but the per-rule deadline computation shows it is not yet due. The stored
+     * value was outdated; writing the real deadline prevents the scheduler
+     * from re-fetching the same item on every run until the rule actually fires.
+     *
+     * @param integer $scheduleId The workflow_automation_schedule row.ID
+     * @param DateTime $deadline The correct next deadline for this rule.
+     *
+     * @return void
+     *
+     * @since 6.2.0
+     */
+    private function rescheduleItem(int $scheduleId, DateTime $deadline): void
+    {
+        $db = $this->getDatabase();
+        $nextRunTime = $deadline->format('Y-m-d H:i:s');
+
+        $query = $db->getQuery(true)
+            ->update($db->quoteName('#__workflow_automation_schedule'))
+            ->set($db->quoteName('next_transition_at') . ' = :nextRunTime')
+            ->where($db->quoteName('id') . ' =:id')
+            ->bind(':nextRunTime', $nextRunTime)
+            ->bind(':id', $scheduleId, ParameterType::INTEGER);
+
+        $db->setQuery($query)->execute();
     }
 }

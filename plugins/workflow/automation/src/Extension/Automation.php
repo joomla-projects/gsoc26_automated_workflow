@@ -2,12 +2,15 @@
 
 namespace Joomla\Plugin\Workflow\Automation\Extension;
 
+use Cron\CronExpression;
 use DateInterval;
 use DateTime;
+use DateTimeZone;
 use Joomla\CMS\Event\Model\AfterSaveEvent;
 use Joomla\CMS\Event\Workflow\WorkflowTransitionEvent;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Plugin\CMSPlugin;
+use Joomla\CMS\Workflow\Workflow;
 use Joomla\Database\DatabaseAwareTrait;
 use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
@@ -35,7 +38,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         $transition = $event->getTransition();
         $toStageId   = (int) $transition->to_stage_id;
         $now         = Factory::getDate()->toSql();
-        $triggeredBy = Factory::getApplication()->get('workflow.triggered_by', 'manual');
+        $triggeredBy = $event->getTriggeredBy();
 
         $rules            = $this->findRulesForStage($toStageId);
         $nextTransitionAt = $this->computeEarliestNextTransitionAt($now, $rules);
@@ -145,17 +148,63 @@ final class Automation extends CMSPlugin implements SubscriberInterface
     {
         $context = $event->getContext();
         $table = $event->getItem();
+        $isNew = $event->getIsNew();
         $itemId = (int) $table->id;
         $db = $this->getDatabase();
 
+        // Seed the schedule row for brand new articles
+        // onWorkflowAfterTransition does not fire on initial article creation
+        // We detect the stage here through the category and create the row.
+
+        if ($isNew) {
+            $workflow = new Workflow($context);
+            $stageId = $workflow->getDefaultStageByCategory($table->catid ?? 0);
+
+            if (!$stageId) {
+                return;
+            }
+
+            $rules = $this->findRulesForStage((int) $stageId);
+
+            if (empty($rules)) {
+                return;
+            }
+
+            $now = Factory::getDate()->toSql();
+            $nextTransitionAt = $this->computeEarliestNextTransitionAt($now, $rules);
+
+            $insertQuery = $db->getQuery(true)
+                ->insert($db->quoteName('#__workflow_automation_schedule'))
+                ->columns($db->quoteName([
+                    'item_id',
+                    'extension',
+                    'stage_id',
+                    'entered_at',
+                    'next_transition_at',
+                    'triggered_by',
+                ]))
+                ->values(
+                    $db->quote($itemId) . ', '
+                        . $db->quote($context) . ', '
+                        . $db->quote((int) $stageId) . ', '
+                        . $db->quote($now) . ', '
+                        . ($nextTransitionAt !== null ? $db->quote($nextTransitionAt) : 'NULL') . ', '
+                        . $db->quote('manual')
+                );
+
+            $db->setQuery($insertQuery)->execute();
+
+            return;
+        }
+
         // load this item's stage log entry
         $query = $db->getQuery(true)
-        ->select($db->quoteName(['id', 'stage_id', 'entered_at', 'next_transition_at']))
-        ->from($db->quoteName('#__workflow_automation_schedule'))
-        ->where($db->quoteName('item_id') . ' = :itemId')
-        ->where($db->quoteName('extension') . ' = :extension')
-        ->bind(':itemId', $itemId, ParameterType::INTEGER)
-        ->bind(':extension', $context);
+            ->select($db->quoteName(['id', 'stage_id', 'entered_at', 'next_transition_at']))
+            ->from($db->quoteName('#__workflow_automation_schedule'))
+            ->where($db->quoteName('item_id') . ' = :itemId')
+            ->where($db->quoteName('extension') . ' = :extension')
+            ->bind(':itemId', $itemId, ParameterType::INTEGER)
+            ->bind(':extension', $context);
 
         $log = $db->setQuery($query)->loadObject();
 
@@ -189,7 +238,6 @@ final class Automation extends CMSPlugin implements SubscriberInterface
                 return;
             }
         }
-
     }
 
     private function findRulesForStage(int $stageId): array
@@ -220,25 +268,33 @@ final class Automation extends CMSPlugin implements SubscriberInterface
 
     private function computeNextTransitionAt(string $enteredAt, object $rule): ?string
     {
-        // Cron-based rules cannot pre-compute a simple offset. So I'll return null for now and the task plugin will handle cron matching at run time
         if ($rule->rule_type === 'cron') {
-            return null;
+            if (empty($rule->cron_expression)) {
+                return null;
+            }
+
+            $cron     = new CronExpression($rule->cron_expression);
+            $deadline = $cron->getNextRunDate(
+                $enteredAt,
+                0,
+                false,
+                Factory::getApplication()->get('offset', 'UTC')
+            );
+            $deadline->setTimezone(new DateTimeZone('UTC'));
+
+            return $deadline->format('Y-m-d H:i:s');
         }
 
-        $date = new DateTime($enteredAt);
+        $date     = new DateTime($enteredAt);
         $interval = match ($rule->interval_unit) {
             'minutes' => new DateInterval('PT' . $rule->interval_value . 'M'),
-            'hours' => new DateInterval('PT' . $rule->interval_value . 'H'),
-            'days' => new DateInterval('P' . $rule->interval_value . 'D'),
-            'months' => new DateInterval('P' . $rule->interval_value . 'M'),
-            default => null,
+            'hours'   => new DateInterval('PT' . $rule->interval_value . 'H'),
+            'days'    => new DateInterval('P' . $rule->interval_value . 'D'),
+            'months'  => new DateInterval('P' . $rule->interval_value . 'M'),
+            default   => null,
         };
 
-        if ($interval === null) {
-            return null;
-        }
-
-        return $date->add($interval)->format('Y-m-d H:i:s');
+        return $interval ? $date->add($interval)->format('Y-m-d H:i:s') : null;
     }
 
     private function computeEarliestNextTransitionAt(string $enteredAt, array $rules): ?string

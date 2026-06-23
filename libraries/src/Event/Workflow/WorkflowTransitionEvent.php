@@ -143,4 +143,30 @@ class WorkflowTransitionEvent extends AbstractEvent
     {
         return $this->getArgument('transition');
     }
+
+    /**
+     * Pre-process the triggeredBy argument.
+     *
+     * @param mixed $value The raw argument value
+     *
+     * @return string
+     *
+     * @since 6.2.0
+     */
+    protected function onGetTriggeredBy($value): string
+    {
+        return (string) ($value ?? 'manual');
+    }
+
+    /**
+     * Get the trigger source - 'manual' or 'automation'
+     *
+     * @return string
+     *
+     * @since 6.2.0
+     */
+    public function getTriggeredBy(): string
+    {
+        return $this->getArgument('triggeredBy');
+    }
 }
