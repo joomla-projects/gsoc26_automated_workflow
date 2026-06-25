@@ -11,20 +11,16 @@
 namespace Joomla\Plugin\Task\WorkflowTransition\Extension;
 
 use Cron\CronExpression;
-use DateInterval;
 use DateTime;
-use DateTimeZone;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\CMS\Workflow\Workflow;
 use Joomla\Component\Scheduler\Administrator\Event\ExecuteTaskEvent;
+use Joomla\Component\Scheduler\Administrator\Task\Status as TaskStatus;
 use Joomla\Component\Scheduler\Administrator\Traits\TaskPluginTrait;
 use Joomla\Database\DatabaseAwareTrait;
 use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
-use Override;
-use Joomla\Component\Scheduler\Administrator\Task\Status as TaskStatus;
-use RuntimeException;
 
 \defined('_JEXEC') or die;
 
@@ -49,8 +45,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     protected const TASKS_MAP = [
         'workflow.automation' => [
             'langConstPrefix' => 'PLG_TASK_WORKFLOWTRANSITION_WORKFLOWAUTOMATION',
-            'method' => 'fireOverdueTransitions',
-        ]
+            'method'          => 'fireOverdueTransitions',
+        ],
     ];
 
     /**
@@ -66,12 +62,12 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * @since 6.2.0
      */
-    #[Override]
+    #[\Override]
     public static function getSubscribedEvents(): array
     {
         return[
-            'onTaskOptionsList' => 'advertiseRoutines',
-            'onExecuteTask' => 'standardRoutineHandler',
+            'onTaskOptionsList'    => 'advertiseRoutines',
+            'onExecuteTask'        => 'standardRoutineHandler',
             'onContentPrepareForm' => 'enhanceTaskItemForm',
         ];
     }
@@ -92,7 +88,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      */
     protected function fireOverdueTransitions(ExecuteTaskEvent $event): int
     {
-        $now = Factory::getDate()->toSql();
+        $now          = Factory::getDate()->toSql();
         $overduePairs = $this->fetchOverduePairs($now);
 
         if (empty($overduePairs)) {
@@ -103,18 +99,18 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         // are waiting on it. This avoids acquiring and releasing the same lock per item.
         $byRule = [];
 
-        foreach($overduePairs as $pair) {
+        foreach ($overduePairs as $pair) {
             $byRule[$pair->rule_id][] = $pair;
         }
 
-        foreach($byRule as $ruleId => $items) {
+        foreach ($byRule as $ruleId => $items) {
             if (!$this->lockRule((int) $ruleId, $now)) {
                 // Another scheduler instance grabbed this rule between our SELECT and now
                 continue;
             }
 
             try {
-                $nowDateTime = new DateTime($now);
+                $nowDateTime  = new \DateTime($now);
                 $transitionId = (int) $items[0]->transition_id;
 
                 foreach ($items as $item) {
@@ -128,7 +124,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                         continue;
                     }
                     $workflow = new Workflow($item->extension);
-                    $workflow->executeTransition([(int) $item->item_id], $transitionId, 'automation');                }
+                    $workflow->executeTransition([(int) $item->item_id], $transitionId, 'automation');
+                }
             } finally {
                 $this->unlockRule((int) $ruleId);
             }
@@ -210,7 +207,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     {
         $db = $this->getDatabase();
         // Set expiry to 30 minutes from now
-        $lockedUntil = Factory::getDate($now)->add(new DateInterval('PT30M'))->toSql();
+        $lockedUntil = Factory::getDate($now)->add(new \DateInterval('PT30M'))->toSql();
 
         $lockedRuleQuery = $db->getQuery(true)
             ->update($db->quoteName('#__workflow_transition_automation'))
@@ -227,7 +224,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $db->setQuery($lockedRuleQuery)->execute();
 
         return $db->getAffectedRows() > 0;
-
     }
 
     /**
@@ -258,39 +254,39 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * @param string $enteredAt When the item entered the stage (SQL datetime).
      * @param object $rule The automation rule row.
      *
-     * @return DateTime|null The deadline as a DateTime object, or null if uncomputable.
-     * 
+     * @return \DateTime|null The deadline as a DateTime object, or null if uncomputable.
+     *
      * @since 6.2.0
      */
-    private function computeDeadline(string $enteredAt, object $rule): ?DateTime
+    private function computeDeadline(string $enteredAt, object $rule): ?\DateTime
     {
         if ($rule->rule_type === 'cron') {
             if (empty($rule->cron_expression)) {
-                throw new RuntimeException('Automation rule ' . $rule->rule_id . ' has rule_type cron but no cron_expression set.');
+                throw new \RuntimeException('Automation rule ' . $rule->rule_id . ' has rule_type cron but no cron_expression set.');
             }
 
             $cronExpression = new CronExpression($rule->cron_expression);
-            $deadline = $cronExpression->getNextRunDate(
+            $deadline       = $cronExpression->getNextRunDate(
                 $enteredAt,
                 0,
                 false,
                 Factory::getApplication()->get('offset', 'UTC')
             );
-            $deadline->setTimezone(new DateTimeZone('UTC'));
+            $deadline->setTimezone(new \DateTimeZone('UTC'));
 
             return $deadline;
         }
 
-        $date = new DateTime($enteredAt);
-        $interval = match($rule->interval_unit) {
-            'minutes' => new DateInterval('PT' . $rule->interval_value . 'M'),
-            'hours'   => new DateInterval('PT' . $rule->interval_value . 'H'),
-            'days'    => new DateInterval('P' . $rule->interval_value . 'D'),
-            'months'  => new DateInterval('P' . $rule->interval_value . 'M'),
+        $date     = new \DateTime($enteredAt);
+        $interval = match ($rule->interval_unit) {
+            'minutes' => new \DateInterval('PT' . $rule->interval_value . 'M'),
+            'hours'   => new \DateInterval('PT' . $rule->interval_value . 'H'),
+            'days'    => new \DateInterval('P' . $rule->interval_value . 'D'),
+            'months'  => new \DateInterval('P' . $rule->interval_value . 'M'),
             default   => null,
         };
 
-        return $interval ? $date->add($interval): null;
+        return $interval ? $date->add($interval) : null;
     }
 
     /**
@@ -301,15 +297,15 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * from re-fetching the same item on every run until the rule actually fires.
      *
      * @param integer $scheduleId The workflow_automation_schedule row.ID
-     * @param DateTime $deadline The correct next deadline for this rule.
+     * @param \DateTime $deadline The correct next deadline for this rule.
      *
      * @return void
      *
      * @since 6.2.0
      */
-    private function rescheduleItem(int $scheduleId, DateTime $deadline): void
+    private function rescheduleItem(int $scheduleId, \DateTime $deadline): void
     {
-        $db = $this->getDatabase();
+        $db          = $this->getDatabase();
         $nextRunTime = $deadline->format('Y-m-d H:i:s');
 
         $query = $db->getQuery(true)

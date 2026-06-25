@@ -409,11 +409,11 @@ class Workflow
                 AbstractEvent::create(
                     'onWorkflowAfterTransition',
                     [
-                        'eventClass' => WorkflowTransitionEvent::class,
-                        'subject'    => $this,
-                        'extension'  => $this->extension,
-                        'pks'        => $pks,
-                        'transition' => $transition,
+                        'eventClass'  => WorkflowTransitionEvent::class,
+                        'subject'     => $this,
+                        'extension'   => $this->extension,
+                        'pks'         => $pks,
+                        'transition'  => $transition,
                         'triggeredBy' => $triggeredBy,
                     ]
                 )

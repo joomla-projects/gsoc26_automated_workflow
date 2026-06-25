@@ -3,9 +3,6 @@
 namespace Joomla\Plugin\Workflow\Automation\Extension;
 
 use Cron\CronExpression;
-use DateInterval;
-use DateTime;
-use DateTimeZone;
 use Joomla\CMS\Event\Model\AfterSaveEvent;
 use Joomla\CMS\Event\Workflow\WorkflowTransitionEvent;
 use Joomla\CMS\Factory;
@@ -27,15 +24,15 @@ final class Automation extends CMSPlugin implements SubscriberInterface
     {
         return [
             'onWorkflowAfterTransition' => 'logStageEntry',
-            'onContentAfterSave' => 'reevaluateOnChange',
+            'onContentAfterSave'        => 'reevaluateOnChange',
         ];
     }
 
     public function logStageEntry(WorkflowTransitionEvent $event): void
     {
-        $pks = $event->getPks();
-        $context = $event->getExtension();
-        $transition = $event->getTransition();
+        $pks         = $event->getPks();
+        $context     = $event->getExtension();
+        $transition  = $event->getTransition();
         $toStageId   = (int) $transition->to_stage_id;
         $now         = Factory::getDate()->toSql();
         $triggeredBy = $event->getTriggeredBy();
@@ -147,10 +144,10 @@ final class Automation extends CMSPlugin implements SubscriberInterface
     public function reevaluateOnChange(AfterSaveEvent $event): void
     {
         $context = $event->getContext();
-        $table = $event->getItem();
-        $isNew = $event->getIsNew();
-        $itemId = (int) $table->id;
-        $db = $this->getDatabase();
+        $table   = $event->getItem();
+        $isNew   = $event->getIsNew();
+        $itemId  = (int) $table->id;
+        $db      = $this->getDatabase();
 
         // Seed the schedule row for brand new articles
         // onWorkflowAfterTransition does not fire on initial article creation
@@ -158,7 +155,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
 
         if ($isNew) {
             $workflow = new Workflow($context);
-            $stageId = $workflow->getDefaultStageByCategory($table->catid ?? 0);
+            $stageId  = $workflow->getDefaultStageByCategory($table->catid ?? 0);
 
             if (!$stageId) {
                 return;
@@ -170,7 +167,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
                 return;
             }
 
-            $now = Factory::getDate()->toSql();
+            $now              = Factory::getDate()->toSql();
             $nextTransitionAt = $this->computeEarliestNextTransitionAt($now, $rules);
 
             $insertQuery = $db->getQuery(true)
@@ -280,17 +277,17 @@ final class Automation extends CMSPlugin implements SubscriberInterface
                 false,
                 Factory::getApplication()->get('offset', 'UTC')
             );
-            $deadline->setTimezone(new DateTimeZone('UTC'));
+            $deadline->setTimezone(new \DateTimeZone('UTC'));
 
             return $deadline->format('Y-m-d H:i:s');
         }
 
-        $date     = new DateTime($enteredAt);
+        $date     = new \DateTime($enteredAt);
         $interval = match ($rule->interval_unit) {
-            'minutes' => new DateInterval('PT' . $rule->interval_value . 'M'),
-            'hours'   => new DateInterval('PT' . $rule->interval_value . 'H'),
-            'days'    => new DateInterval('P' . $rule->interval_value . 'D'),
-            'months'  => new DateInterval('P' . $rule->interval_value . 'M'),
+            'minutes' => new \DateInterval('PT' . $rule->interval_value . 'M'),
+            'hours'   => new \DateInterval('PT' . $rule->interval_value . 'H'),
+            'days'    => new \DateInterval('P' . $rule->interval_value . 'D'),
+            'months'  => new \DateInterval('P' . $rule->interval_value . 'M'),
             default   => null,
         };
 
