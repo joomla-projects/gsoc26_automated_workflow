@@ -12,8 +12,9 @@ use Joomla\Database\DatabaseAwareTrait;
 use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
 
+// phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;
-
+// phpcs:enable PSR1.Files.SideEffects
 final class Automation extends CMSPlugin implements SubscriberInterface
 {
     use DatabaseAwareTrait;
@@ -282,7 +283,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
             return $deadline->format('Y-m-d H:i:s');
         }
 
-        $date     = new \DateTime($enteredAt);
+        $date     = new \DateTime($enteredAt, new \DateTimeZone('UTC'));
         $interval = match ($rule->interval_unit) {
             'minutes' => new \DateInterval('PT' . $rule->interval_value . 'M'),
             'hours'   => new \DateInterval('PT' . $rule->interval_value . 'H'),

@@ -15,6 +15,7 @@ use Joomla\CMS\Factory;
 use Joomla\CMS\Form\Form;
 use Joomla\CMS\MVC\Model\AdminModel;
 use Joomla\CMS\Plugin\PluginHelper;
+use Joomla\Database\ParameterType;
 use Joomla\Registry\Registry;
 use Joomla\String\StringHelper;
 
@@ -118,6 +119,17 @@ class TransitionModel extends AdminModel
             $item->options = $registry->toArray();
         }
 
+        if (!empty($item->id)) {
+            $db                        = $this->getDatabase();
+            $transitionAutomationQuery = $db->getQuery(true)
+                ->select('*')
+                ->from($db->quoteName('#__workflow_transition_automation'))
+                ->where($db->quoteName('transition_id') . ' = :id')
+                ->bind(':id', $item->id, ParameterType::INTEGER);
+
+            $item->automation = $db->setQuery($transitionAutomationQuery)->loadAssoc() ?: [];
+        }
+
         return $item;
     }
 
@@ -132,6 +144,9 @@ class TransitionModel extends AdminModel
      */
     public function save($data)
     {
+        $automationData = $data['automation'] ?? [];
+        unset($data['automation']);
+
         $table      = $this->getTable();
         $context    = $this->option . '.' . $this->name;
         $app        = Factory::getApplication();
@@ -178,7 +193,15 @@ class TransitionModel extends AdminModel
             $data['published'] = 0;
         }
 
-        return parent::save($data);
+        // return parent::save($data);
+        if (!parent::save($data)) {
+            return false;
+        }
+
+        $pk = (int) $this->getState($this->getName() . '.id');
+        $this->saveAutomationRule($pk, $automationData);
+
+        return true;
     }
 
     /**
@@ -329,5 +352,82 @@ class TransitionModel extends AdminModel
         PluginHelper::importPlugin('workflow');
 
         parent::preprocessForm($form, $data, $group);
+    }
+
+    private function saveAutomationRule(int $transitionId, array $data): void
+    {
+        $db   = $this->getDatabase();
+        $user = Factory::getApplication()->getIdentity();
+        $now  = Factory::getDate()->toSql();
+
+        if (empty($data) || empty((int) ($data['published'] ?? 0))) {
+            $db->setQuery(
+                $db->getQuery(true)
+                    ->delete($db->quoteName('#__workflow_transition_automation'))
+                    ->where($db->quoteName('transition_id') . ' = :id')
+                    ->bind(':id', $transitionId, ParameterType::INTEGER)
+            )->execute();
+
+            return;
+        }
+
+        $query = $db->getQuery(true)
+            ->select($db->quoteName('id'))
+            ->from($db->quoteName('#__workflow_transition_automation'))
+            ->where($db->quoteName('transition_id') . ' = :id')
+            ->bind(':id', $transitionId, ParameterType::INTEGER);
+
+        $existingId = (int) $db->setQuery($query)->loadResult();
+
+        if ($existingId) {
+            $db->setQuery(
+                $db->getQuery(true)
+                    ->update($db->quoteName('#__workflow_transition_automation'))
+                    ->set($db->quoteName('rule_type') . ' = ' . $db->quote($data['rule_type'] ?? 'interval'))
+                    ->set($db->quoteName('interval_value') . ' = ' . (int) ($data['interval_value'] ?? 0))
+                    ->set($db->quoteName('interval_unit') . ' = ' . $db->quote($data['interval_unit'] ?? 'minutes'))
+                    ->set($db->quoteName('cron_expression') . ' = ' . $db->quote($data['cron_expression'] ?? ''))
+                    ->set($db->quoteName('run_as_user_id') . ' = ' . (int) ($data['run_as_user_id'] ?? 0))
+                    ->set($db->quoteName('loop_mode') . ' = ' . (int) ($data['loop_mode'] ?? 0))
+                    ->set($db->quoteName('published') . ' = 1')
+                    ->set($db->quoteName('modified') . ' = ' . $db->quote($now))
+                    ->set($db->quoteName('modified_by') . ' = ' . $user->id)
+                    ->where($db->quoteName('transition_id') . ' = :id')
+                    ->bind(':id', $transitionId, ParameterType::INTEGER)
+            )->execute();
+        } else {
+            $db->setQuery(
+                $db->getQuery(true)
+                    ->insert($db->quoteName('#__workflow_transition_automation'))
+                    ->columns($db->quoteName([
+                        'transition_id',
+                        'rule_type',
+                        'interval_value',
+                        'interval_unit',
+                        'cron_expression',
+                        'run_as_user_id',
+                        'loop_mode',
+                        'published',
+                        'created',
+                        'created_by',
+                        'modified',
+                        'modified_by',
+                    ]))
+                    ->values(implode(', ', [
+                        $transitionId,
+                        $db->quote($data['rule_type'] ?? 'interval'),
+                        (int) ($data['interval_value'] ?? 0),
+                        $db->quote($data['interval_unit'] ?? 'minutes'),
+                        $db->quote($data['cron_expression'] ?? ''),
+                        (int) ($data['run_as_user_id'] ?? 0),
+                        (int) ($data['loop_mode'] ?? 0),
+                        1,
+                        $db->quote($now),
+                        $user->id,
+                        $db->quote($now),
+                        $user->id,
+                    ]))
+            )->execute();
+        }
     }
 }

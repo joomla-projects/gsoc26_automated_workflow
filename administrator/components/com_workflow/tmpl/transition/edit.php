@@ -66,7 +66,7 @@ $tmpl    = $isModal || $this->input->get('tmpl', '', 'cmd') === 'component' ? '&
 
         <?php echo LayoutHelper::render('joomla.edit.params', $this); ?>
 
-        <?php echo HTMLHelper::_('uitab.addTab', 'myTab', 'automation', Text::_('WORKFLOW_AUTOMATION_FIELDSET_LABEL')); ?>
+        <?php echo HTMLHelper::_('uitab.addTab', 'myTab', 'automation', Text::_('COM_WORKFLOW_AUTOMATION_FIELDSET_LABEL')); ?>
         <fieldset id="fieldset-automation" class="options-form">
             <legend><?php echo Text::_('COM_WORKFLOW_AUTOMATION_FIELDSET_LABEL'); ?></legend>
             <div class="row">

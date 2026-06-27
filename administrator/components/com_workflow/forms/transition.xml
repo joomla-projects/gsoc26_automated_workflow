@@ -128,33 +128,33 @@
 			</field>
 
 			<field
-			name="cron_expression"
-			type="text"
-			label="COM_WORKFLOW_AUTOMATION_CRON_LABEL"
-			description="COM_WORKFLOW_AUTOMATION_CRON_DESC"
-			hint="*/5 * * * * *"
-			showon="published:1[AND]rule_type:cron"
+				name="cron_expression"
+				type="text"
+				label="COM_WORKFLOW_AUTOMATION_CRON_LABEL"
+				description="COM_WORKFLOW_AUTOMATION_CRON_DESC"
+				hint="*/5 * * * * "
+				showon="published:1[AND]rule_type:cron"
 			/>
 
 			<field
-			name="run_as_user_id"
-			type="user"
-			label="COM_WORKFLOW_AUTOMATION_RUN_AS_LABEL"
-			description="COM_WORKFLOW_AUTOMATION_RUN_AS_DESC"
-			showon="published:1"
+				name="run_as_user_id"
+				type="user"
+				label="COM_WORKFLOW_AUTOMATION_RUN_AS_LABEL"
+				description="COM_WORKFLOW_AUTOMATION_RUN_AS_DESC"
+				showon="published:1"
 			/>
 
 			<field
-			name="loop_mode"
-			type="radio"
-			layout="joomla.form.field.radio.switcher"
-			label="COM_WORKFLOW_AUTOMATION_LOOP_MODE_LABEL"
-			description="COM_WORKFLOW_AUTOMATION_LOOP_MODE_DESC"
-			default="0"
-			showon="published:1"
+				name="loop_mode"
+				type="radio"
+				layout="joomla.form.field.radio.switcher"
+				label="COM_WORKFLOW_AUTOMATION_LOOP_MODE_LABEL"
+				description="COM_WORKFLOW_AUTOMATION_LOOP_MODE_DESC"
+				default="0"
+				showon="published:1"
 			>
-			<option value="0">JNO</option>
-			<option value="1">JYES</option>
+				<option value="0">JNO</option>
+				<option value="1">JYES</option>
 			</field>
 		</fieldset>
 	</fields>

@@ -14,6 +14,7 @@ use Cron\CronExpression;
 use DateTime;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Plugin\CMSPlugin;
+use Joomla\CMS\User\UserFactoryInterface;
 use Joomla\CMS\Workflow\Workflow;
 use Joomla\Component\Scheduler\Administrator\Event\ExecuteTaskEvent;
 use Joomla\Component\Scheduler\Administrator\Task\Status as TaskStatus;
@@ -22,8 +23,9 @@ use Joomla\Database\DatabaseAwareTrait;
 use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
 
+// phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;
-
+// phpcs:enable PSR1.Files.SideEffects
 /**
  * Scheduler task plugin that fires automated workflow transitions.
  *
@@ -65,7 +67,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     #[\Override]
     public static function getSubscribedEvents(): array
     {
-        return[
+        return [
             'onTaskOptionsList'    => 'advertiseRoutines',
             'onExecuteTask'        => 'standardRoutineHandler',
             'onContentPrepareForm' => 'enhanceTaskItemForm',
@@ -110,24 +112,40 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             }
 
             try {
-                $nowDateTime  = new \DateTime($now);
+                $nowDateTime  = new \DateTime($now, new \DateTimeZone('UTC'));
                 $transitionId = (int) $items[0]->transition_id;
+                $runAsUserId  = (int) ($items[0]->run_as_user_id ?? 0);
+                $app          = Factory::getApplication();
+                $originalUser = $app->getIdentity();
+
+                if ($runAsUserId > 0) {
+                    $runAsUser = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($runAsUserId);
+
+                    if ($runAsUser->id > 0) {
+                        $app->loadIdentity($runAsUser);
+                    }
+                }
 
                 foreach ($items as $item) {
                     $deadline = $this->computeDeadline($item->entered_at, $item);
 
                     if ($deadline === null || $deadline > $nowDateTime) {
-                        // something goes here
                         if ($deadline !== null) {
                             $this->rescheduleItem((int) $item->schedule_id, $deadline);
                         }
+
                         continue;
                     }
+
                     $workflow = new Workflow($item->extension);
                     $workflow->executeTransition([(int) $item->item_id], $transitionId, 'automation');
                 }
             } finally {
                 $this->unlockRule((int) $ruleId);
+
+                if (isset($app, $originalUser)) {
+                    $app->loadIdentity($originalUser);
+                }
             }
         }
 
@@ -159,11 +177,13 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 $db->quoteName('wta.interval_value'),
                 $db->quoteName('wta.interval_unit'),
                 $db->quoteName('wta.rule_type'),
+                $db->quoteName('wta.cron_expression'),
                 $db->quoteName('wta.ordering'),
                 $db->quoteName('was.item_id'),
                 $db->quoteName('was.extension'),
                 $db->quoteName('was.id', 'schedule_id'),
                 $db->quoteName('was.entered_at'),
+                $db->quoteName('wta.run_as_user_id'),
             ])
             ->from($db->quoteName('#__workflow_automation_schedule', 'was'))
             ->join(
@@ -180,7 +200,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->where($db->quoteName('wta.published') . ' = 1')
             ->where(
                 '(' . $db->quoteName('wta.locked_until') . ' IS NULL'
-                . ' OR ' . $db->quoteName('wta.locked_until') . ' < :now)'
+                    . ' OR ' . $db->quoteName('wta.locked_until') . ' < :now)'
             )
             ->bind(':now', $now)
             ->order($db->quoteName('wta.ordering') . ' ASC')
@@ -215,7 +235,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->where($db->quoteName('id') . ' = :id')
             ->where(
                 '(' . $db->quoteName('locked_until') . ' IS NULL'
-                . ' OR ' . $db->quoteName('locked_until') . ' < :now)'
+                    . ' OR ' . $db->quoteName('locked_until') . ' < :now)'
             )
             ->bind(':lockedUntil', $lockedUntil)
             ->bind(':id', $ruleId, ParameterType::INTEGER)
@@ -277,7 +297,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             return $deadline;
         }
 
-        $date     = new \DateTime($enteredAt);
+        $date     = new \DateTime($enteredAt, new \DateTimeZone('UTC'));
         $interval = match ($rule->interval_unit) {
             'minutes' => new \DateInterval('PT' . $rule->interval_value . 'M'),
             'hours'   => new \DateInterval('PT' . $rule->interval_value . 'H'),
