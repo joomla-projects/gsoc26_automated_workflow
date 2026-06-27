@@ -22,8 +22,9 @@ use Joomla\Database\DatabaseAwareTrait;
 use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
 
+// phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;
-
+// phpcs:enable PSR1.Files.SideEffects
 /**
  * Scheduler task plugin that fires automated workflow transitions.
  *
