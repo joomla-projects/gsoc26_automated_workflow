@@ -33,7 +33,7 @@ use Joomla\Event\SubscriberInterface;
  * for items whose next_transition_at deadline has passed, then fires the appropriate
  * workflow transition for each one using Joomla's existing transition engine.
  *
- * @since 6.2.0
+ * @since __DEPLOY_VERSION__
  */
 final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 {
@@ -42,7 +42,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
     /**
      * @var string[]
-     * @since 6.2.0
+     * @since __DEPLOY_VERSION__
      */
     protected const TASKS_MAP = [
         'workflow.automation' => [
@@ -53,7 +53,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
     /**
      * @var boolean
-     * @since 6.2.0
+     * @since __DEPLOY_VERSION__
      */
     protected $autoloadLanguage = true;
 
@@ -62,7 +62,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * @return array
      *
-     * @since 6.2.0
+     * @since __DEPLOY_VERSION__
      */
     #[\Override]
     public static function getSubscribedEvents(): array
@@ -86,7 +86,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * @return  integer  TaskStatus::OK on completion.
      *
-     * @since   6.2.0
+     * @since   __DEPLOY_VERSION__
      */
     protected function fireOverdueTransitions(ExecuteTaskEvent $event): int
     {
@@ -164,7 +164,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * @return object[]
      *
-     * @since 6.2.0
+     * @since __DEPLOY_VERSION__
      */
     private function fetchOverduePairs(string $now): array
     {
@@ -221,7 +221,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * @return boolean True if we successfully acquired the lock.
      *
-     * @since 6.2.0
+     * @since __DEPLOY_VERSION__
      */
     private function lockRule(int $ruleId, string $now): bool
     {
@@ -253,7 +253,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * @return void
      *
-     * @since 6.2.0
+     * @since __DEPLOY_VERSION__
      */
     private function unlockRule(int $ruleId): void
     {
@@ -276,7 +276,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * @return \DateTime|null The deadline as a DateTime object, or null if uncomputable.
      *
-     * @since 6.2.0
+     * @since __DEPLOY_VERSION__
      */
     private function computeDeadline(string $enteredAt, object $rule): ?\DateTime
     {
@@ -321,7 +321,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * @return void
      *
-     * @since 6.2.0
+     * @since __DEPLOY_VERSION__
      */
     private function rescheduleItem(int $scheduleId, \DateTime $deadline): void
     {

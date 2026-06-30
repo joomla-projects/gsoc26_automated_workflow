@@ -11,8 +11,10 @@
 
 namespace Joomla\Component\Workflow\Administrator\Model;
 
+use Cron\CronExpression;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Form\Form;
+use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\Model\AdminModel;
 use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\Database\ParameterType;
@@ -146,6 +148,10 @@ class TransitionModel extends AdminModel
     {
         $automationData = $data['automation'] ?? [];
         unset($data['automation']);
+
+        if (!$this->validateAutomation($automationData)) {
+            return false;
+        }
 
         $table      = $this->getTable();
         $context    = $this->option . '.' . $this->name;
@@ -429,5 +435,60 @@ class TransitionModel extends AdminModel
                     ]))
             )->execute();
         }
+    }
+
+    /**
+     * Validates the automation rule data submitted with a transition.
+     *
+     * Form-level validation only runs in the browser; this guards the model when
+     * data arrives from any other path. Only enforced when automation is enabled.
+     *
+     * @param   array  $data  The automation sub-form data.
+     *
+     * @return  boolean  True if valid, false (with a message enqueued) otherwise.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function validateAutomation(array $data): bool
+    {
+        // Nothing to validate when automation is disabled.
+        if (empty((int) ($data['published'] ?? 0))) {
+            return true;
+        }
+
+        $app      = Factory::getApplication();
+        $ruleType = $data['rule_type'] ?? 'interval';
+
+        if (!in_array($ruleType, ['interval', 'cron'], true)) {
+            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_RULE_TYPE'), 'error');
+
+            return false;
+        }
+
+        if ($ruleType === 'interval') {
+            if ((int) ($data['interval_value'] ?? 0) < 1) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_INTERVAL_VALUE'), 'error');
+
+                return false;
+            }
+
+            if (!\in_array($data['interval_unit'] ?? '', ['minutes', 'hours', 'days', 'months'], true)) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_INTERVAL_UNIT'), 'error');
+
+                return false;
+            }
+        }
+
+        if ($ruleType === 'cron') {
+            $expression = trim((string) ($data['cron_expression'] ?? ''));
+
+            if ($expression === '' || !CronExpression::isValidExpression($expression)) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_CRON'), 'error');
+
+                return false;
+            }
+        }
+
+        return true;
     }
 }

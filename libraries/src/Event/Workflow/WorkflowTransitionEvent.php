@@ -151,7 +151,7 @@ class WorkflowTransitionEvent extends AbstractEvent
      *
      * @return string
      *
-     * @since 6.2.0
+     * @since __DEPLOY_VERSION__
      */
     protected function onGetTriggeredBy($value): string
     {

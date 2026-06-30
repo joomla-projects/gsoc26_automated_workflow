@@ -213,7 +213,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
 
         $now = Factory::getDate()->toSql();
 
-        // Already flaged for immediate check, scheduler will pick it up
+        // Already flagged for immediate check, scheduler will pick it up
         if ($log->next_transition_at <= $now) {
             return;
         }
