@@ -459,7 +459,7 @@ class TransitionModel extends AdminModel
         $app      = Factory::getApplication();
         $ruleType = $data['rule_type'] ?? 'interval';
 
-        if (!in_array($ruleType, ['interval', 'cron'], true)) {
+        if (!\in_array($ruleType, ['interval', 'cron'], true)) {
             $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_RULE_TYPE'), 'error');
 
             return false;
