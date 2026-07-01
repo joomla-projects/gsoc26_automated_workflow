@@ -105,6 +105,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             $byRule[$pair->rule_id][] = $pair;
         }
 
+        $failures = [];
+
         foreach ($byRule as $ruleId => $items) {
             if (!$this->lockRule((int) $ruleId, $now)) {
                 // Another scheduler instance grabbed this rule between our SELECT and now
@@ -137,8 +139,19 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                         continue;
                     }
 
-                    $workflow = new Workflow($item->extension);
-                    $workflow->executeTransition([(int) $item->item_id], $transitionId, 'automation');
+                    try {
+                        $workflow = new Workflow($item->extension);
+
+                        if (!$workflow->executeTransition([(int) $item->item_id], $transitionId, 'automation')) {
+                            $failures[] = 'Item ' . (int) $item->item_id . ' (transition ' . $transitionId
+                                . '): transition could not be executed — permission denied, invalid transition, or stopped by a plugin.';
+                            $this->markItemFailed((int) $item->schedule_id);
+                        }
+                    } catch (\Throwable $e) {
+                        $failures[] = 'Item ' . (int) $item->item_id . ' (transition ' . $transitionId
+                            . '): ' . $e->getMessage();
+                        $this->markItemFailed((int) $item->schedule_id);
+                    }
                 }
             } finally {
                 $this->unlockRule((int) $ruleId);
@@ -147,6 +160,16 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                     $app->loadIdentity($originalUser);
                 }
             }
+        }
+
+        if (!empty($failures)) {
+            $summary = \count($failures) . ' automated transition(s) failed:' . "\n" . implode("\n", $failures);
+
+            // Logged to the scheduler log, and surfaced in the task-failure notification email.
+            $this->logTask($summary, 'error');
+            $this->snapshot['output_body'] = $summary;
+
+            return TaskStatus::KNOCKOUT;
         }
 
         return TaskStatus::OK;
@@ -334,6 +357,31 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->where($db->quoteName('id') . ' =:id')
             ->bind(':nextRunTime', $nextRunTime)
             ->bind(':id', $scheduleId, ParameterType::INTEGER);
+
+        $db->setQuery($query)->execute();
+    }
+
+    /**
+     * Stops an item from being retried after its transition failed.
+     *
+     * Clearing next_transition_at removes the item from the scheduler's pickup query
+     * so a permanently-failing transition does not re-notify on every run. The item
+     * is re-armed when it next enters a stage (manual transition or re-save).
+     *
+     * @param integer $scheduledId The workflow_automation_schedule row ID.
+     *
+     * @return void
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function markItemFailed(int $scheduledId): void
+    {
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->update($db->quoteName('#__workflow_automation_schedule'))
+            ->set($db->quoteName('next_transition_at') . ' = NULL')
+            ->where($db->quoteName('id') . ' = :id')
+            ->bind(':id', $scheduledId, ParameterType::INTEGER);
 
         $db->setQuery($query)->execute();
     }
