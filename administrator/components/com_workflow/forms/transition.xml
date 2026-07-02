@@ -24,7 +24,7 @@
 			sql_from="#__workflow_stages"
 			sql_order="ordering"
 			translate="true"
-			>
+		>
 			<option value="-1">JALL</option>
 		</field>
 		<field
@@ -55,7 +55,7 @@
 			class="form-select-color-state"
 			default="1"
 			validate="options"
-			>
+		>
 			<option value="1">JENABLED</option>
 			<option value="0">JDISABLED</option>
 			<option value="-2">JTRASHED</option>
@@ -77,4 +77,85 @@
 			section="transition"
 		/>
 	</fieldset>
+	<fields name="automation">
+		<fieldset name="automation" label="COM_WORKFLOW_AUTOMATION_FIELDSET_LABEL">
+			<field
+				name="published"
+				type="radio"
+				layout="joomla.form.field.radio.switcher"
+				label="COM_WORKFLOW_AUTOMATION_ENABLED_LABEL"
+				description="COM_WORKFLOW_AUTOMATION_ENABLED_DESC"
+				default="0"
+			>
+				<option value="0">JNO</option>
+				<option value="1">JYES</option>
+			</field>
+
+			<field
+				name="rule_type"
+				type="list"
+				label="COM_WORKFLOW_AUTOMATION_RULE_TYPE_LABEL"
+				description="COM_WORKFLOW_AUTOMATION_RULE_TYPE_DESC"
+				default="interval"
+				validate="options"
+				showon="published:1"
+			>
+				<option value="interval">COM_WORKFLOW_AUTOMATION_RULE_TYPE_INTERVAL</option>
+				<option value="cron">COM_WORKFLOW_AUTOMATION_RULE_TYPE_CRON</option>
+			</field>
+
+			<field
+				name="interval_value"
+				type="number"
+				label="COM_WORKFLOW_AUTOMATION_INTERVAL_VALUE_LABEL"
+				description="COM_WORKFLOW_AUTOMATION_INTERVAL_VALUE_DESC"
+				min="1"
+				showon="published:1[AND]rule_type:interval"
+			/>
+
+			<field
+				name="interval_unit"
+				type="list"
+				label="COM_WORKFLOW_AUTOMATION_INTERVAL_UNIT_LABEL"
+				default="minutes"
+				validate="options"
+				showon="published:1[AND]rule_type:interval"
+			>
+				<option value="minutes">COM_WORKFLOW_AUTOMATION_UNIT_MINUTES</option>
+				<option value="hours">COM_WORKFLOW_AUTOMATION_UNIT_HOURS</option>
+				<option value="days">COM_WORKFLOW_AUTOMATION_UNIT_DAYS</option>
+				<option value="months">COM_WORKFLOW_AUTOMATION_UNIT_MONTHS</option>
+			</field>
+
+			<field
+				name="cron_expression"
+				type="text"
+				label="COM_WORKFLOW_AUTOMATION_CRON_LABEL"
+				description="COM_WORKFLOW_AUTOMATION_CRON_DESC"
+				hint="*/5 * * * * "
+				showon="published:1[AND]rule_type:cron"
+			/>
+
+			<field
+				name="run_as_user_id"
+				type="user"
+				label="COM_WORKFLOW_AUTOMATION_RUN_AS_LABEL"
+				description="COM_WORKFLOW_AUTOMATION_RUN_AS_DESC"
+				showon="published:1"
+			/>
+
+			<field
+				name="loop_mode"
+				type="radio"
+				layout="joomla.form.field.radio.switcher"
+				label="COM_WORKFLOW_AUTOMATION_LOOP_MODE_LABEL"
+				description="COM_WORKFLOW_AUTOMATION_LOOP_MODE_DESC"
+				default="0"
+				showon="published:1"
+			>
+				<option value="0">JNO</option>
+				<option value="1">JYES</option>
+			</field>
+		</fieldset>
+	</fields>
 </form>

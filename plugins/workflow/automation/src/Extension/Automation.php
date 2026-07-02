@@ -213,7 +213,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
 
         $now = Factory::getDate()->toSql();
 
-        // Already flaged for immediate check, scheduler will pick it up
+        // Already flagged for immediate check, scheduler will pick it up
         if ($log->next_transition_at <= $now) {
             return;
         }
@@ -283,7 +283,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
             return $deadline->format('Y-m-d H:i:s');
         }
 
-        $date     = new \DateTime($enteredAt);
+        $date     = new \DateTime($enteredAt, new \DateTimeZone('UTC'));
         $interval = match ($rule->interval_unit) {
             'minutes' => new \DateInterval('PT' . $rule->interval_value . 'M'),
             'hours'   => new \DateInterval('PT' . $rule->interval_value . 'H'),
