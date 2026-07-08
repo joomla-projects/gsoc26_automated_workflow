@@ -13,6 +13,7 @@ namespace Joomla\Component\Workflow\Administrator\View\Workflows;
 use Joomla\CMS\Helper\ContentHelper;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\View\HtmlView as BaseHtmlView;
+use Joomla\CMS\Router\Route;
 use Joomla\CMS\Toolbar\Button\DropdownButton;
 use Joomla\CMS\Toolbar\ToolbarHelper;
 use Joomla\Component\Workflow\Administrator\Model\WorkflowsModel;
@@ -150,6 +151,14 @@ class HtmlView extends BaseHtmlView
 
         if ($canDo->get('core.create')) {
             $toolbar->addNew('workflow.add');
+        }
+
+        // Gated this on core.admin since the log is an audit view exposing failure details
+        if ($canDo->get('core.admin')) {
+            $toolbar->link(
+                'COM_WORKFLOW_LOGS_LIST',
+                Route::_('index.php?option=com_workflow&view=logs&extension=' . $this->extension . ($this->section ? '.' . $this->section : ''))
+            )->icon('icon-list');
         }
 
         if ($canDo->get('core.edit.state') || $user->authorise('core.admin')) {

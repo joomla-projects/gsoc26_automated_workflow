@@ -14,6 +14,7 @@ use Cron\CronExpression;
 use DateTime;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Plugin\CMSPlugin;
+use Joomla\CMS\Uri\Uri;
 use Joomla\CMS\User\UserFactoryInterface;
 use Joomla\CMS\Workflow\Workflow;
 use Joomla\Component\Scheduler\Administrator\Event\ExecuteTaskEvent;
@@ -105,6 +106,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             $byRule[$pair->rule_id][] = $pair;
         }
 
+        $failures = [];
+
         foreach ($byRule as $ruleId => $items) {
             if (!$this->lockRule((int) $ruleId, $now)) {
                 // Another scheduler instance grabbed this rule between our SELECT and now
@@ -137,8 +140,24 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                         continue;
                     }
 
-                    $workflow = new Workflow($item->extension);
-                    $workflow->executeTransition([(int) $item->item_id], $transitionId, 'automation');
+                    try {
+                        $workflow = new Workflow($item->extension);
+
+                        if ($workflow->executeTransition([(int) $item->item_id], $transitionId, 'automation')) {
+                            $this->logAutomationRun($item, 0);
+                        } else {
+                            $link       = $this->itemEditLink($item);
+                            $note       = 'Transition could not be executed; permission denied, invalid transition, or stopped by a plugin.';
+                            $failures[] = 'Item ' . (int) $item->item_id . ' (transition ' . $transitionId . '): ' . $note . ($link !== '' ? ' - ' . $link : '');
+                            $this->logAutomationRun($item, 1, $note);
+                            $this->markRequiresIntervention((int) $item->schedule_id);
+                        }
+                    } catch (\Throwable $e) {
+                        $link       = $this->itemEditLink($item);
+                        $failures[] = 'Item ' . (int) $item->item_id . ' (transition ' . $transitionId . '): ' . $e->getMessage() . ($link !== '' ? ' - ' . $link : '');
+                        $this->logAutomationRun($item, 3, $e->getMessage());
+                        $this->markRequiresIntervention((int) $item->schedule_id);
+                    }
                 }
             } finally {
                 $this->unlockRule((int) $ruleId);
@@ -147,6 +166,16 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                     $app->loadIdentity($originalUser);
                 }
             }
+        }
+
+        if (!empty($failures)) {
+            $summary = \count($failures) . ' automated transition(s) failed:' . "\n" . implode("\n", $failures);
+
+            // Logged to the scheduler log, and surfaced in the task-failure notification email.
+            $this->logTask($summary, 'error');
+            $this->snapshot['output_body'] = $summary;
+
+            return TaskStatus::KNOCKOUT;
         }
 
         return TaskStatus::OK;
@@ -174,6 +203,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->select([
                 $db->quoteName('wta.id', 'rule_id'),
                 $db->quoteName('wta.transition_id'),
+                $db->quoteName('wt.from_stage_id'),
+                $db->quoteName('wt.to_stage_id'),
                 $db->quoteName('wta.interval_value'),
                 $db->quoteName('wta.interval_unit'),
                 $db->quoteName('wta.rule_type'),
@@ -197,6 +228,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 $db->quoteName('wta.transition_id') . ' = ' . $db->quoteName('wt.id')
             )
             ->where($db->quoteName('was.next_transition_at') . ' <= :now')
+            ->where($db->quoteName('was.requires_intervention') . ' = 0')
             ->where($db->quoteName('wta.published') . ' = 1')
             ->where(
                 '(' . $db->quoteName('wta.locked_until') . ' IS NULL'
@@ -336,5 +368,109 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->bind(':id', $scheduleId, ParameterType::INTEGER);
 
         $db->setQuery($query)->execute();
+    }
+
+    /**
+     * Stops an item from being retried after its transition failed.
+     *
+     * Clearing next_transition_at removes the item from the scheduler's pickup query
+     * so a permanently-failing transition does not re-notify on every run. The item
+     * is re-armed when it next enters a stage (manual transition or re-save).
+     *
+     * @param integer $scheduledId The workflow_automation_schedule row ID.
+     *
+     * @return void
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function markItemFailed(int $scheduledId): void
+    {
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->update($db->quoteName('#__workflow_automation_schedule'))
+            ->set($db->quoteName('next_transition_at') . ' = NULL')
+            ->where($db->quoteName('id') . ' = :id')
+            ->bind(':id', $scheduledId, ParameterType::INTEGER);
+
+        $db->setQuery($query)->execute();
+    }
+
+    /**
+     * Records the outcome of one automated transition attempt.
+     *
+     * @param object $item The overdue (item, rule) pair being processed.
+     * @param integer $exitCode 0 = success; non-zero = failure (see
+     * #__workflow_automation_log).
+     * @param string $note Optional human-readable reason, truncated to the column
+     * length.
+     *
+     * @return void
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function logAutomationRun(object $item, int $exitCode, string $note = ''): void
+    {
+        $db  = $this->getDatabase();
+        $row = (object) [
+            'rule_id'        => (int) $item->rule_id,
+            'item_id'        => (int) $item->item_id,
+            'extension'      => $item->extension,
+            'transition_id'  => (int) $item->transition_id,
+            'from_stage_id'  => (int) ($item->from_stage_id ?? 0),
+            'to_stage_id'    => (int) ($item->to_stage_id ?? 0),
+            'run_as_user_id' => (int) ($item->run_as_user_id ?? 0),
+            'trigger_type'   => 'rule',
+            'exit_code'      => $exitCode,
+            'note'           => $note !== '' ? substr($note, 0, 500) : null,
+            'executed_at'    => Factory::getDate()->toSql(),
+        ];
+
+        $db->insertObject('#__workflow_automation_log', $row);
+    }
+
+    /**
+     * Builds an absolute backend edit link for the item, for use in notification.
+     *
+     * @param object $item The overdue (item, rule) pair.
+     *
+     * @return string Absolute URL, or empty string if the extension can't be resolved.
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function itemEditLink(object $item): string
+    {
+        $parts  = explode('.', (string) $item->extension);
+        $option = $parts[0] ?? '';
+        $type   = $parts[1] ?? '';
+
+        if ($option === '' || $type === '') {
+            return '';
+        }
+
+        return Uri::root() . 'administrator/index.php?option=' . $option . '&task=' . $type . '.edit&id=' . (int) $item->item_id;
+    }
+
+    /**
+     * Flags an item as needing manual intervention after its transition failed.
+     *
+     * next_transition_at is intentionally left untouched, clearing requires_intervention
+     * later makes the still-overdue item eligible again without a re-save
+     *
+     * @param integer $scheduleId The workflow_automation_schedule row ID.
+     *
+     * @return void
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function markRequiresIntervention(int $scheduleId): void
+    {
+        $db          = $this->getDatabase();
+        $updateQuery = $db->getQuery(true)
+            ->update($db->quoteName('#__workflow_automation_schedule'))
+            ->set($db->quoteName('requires_intervention') . ' = 1')
+            ->where($db->quoteName('id') . ' = :id')
+            ->bind(':id', $scheduleId, ParameterType::INTEGER);
+
+        $db->setQuery($updateQuery)->execute();
     }
 }
