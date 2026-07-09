@@ -11,7 +11,7 @@
 namespace Joomla\Plugin\Task\WorkflowTransition\Extension;
 
 use Cron\CronExpression;
-use DateTime;
+use Joomla\CMS\Application\CMSApplicationInterface;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\CMS\Uri\Uri;
@@ -23,6 +23,8 @@ use Joomla\Component\Scheduler\Administrator\Traits\TaskPluginTrait;
 use Joomla\Database\DatabaseAwareTrait;
 use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
+use Joomla\Plugin\Task\WorkflowTransition\Condition\ConditionEvaluator;
+use Joomla\Plugin\Task\WorkflowTransition\Condition\ItemFieldResolver;
 
 // phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;
@@ -91,87 +93,37 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      */
     protected function fireOverdueTransitions(ExecuteTaskEvent $event): int
     {
-        $now          = Factory::getDate()->toSql();
-        $overduePairs = $this->fetchOverduePairs($now);
+        $now         = Factory::getDate()->toSql();
+        $nowDateTime = new \DateTime($now, new \DateTimeZone('UTC'));
+        $candidates  = $this->fetchOverduePairs($now);
 
-        if (empty($overduePairs)) {
+        if (empty($candidates)) {
             return TaskStatus::OK;
         }
 
-        // Group by rule_id. Each rule is locked once regardless of how many items
-        // are waiting on it. This avoids acquiring and releasing the same lock per item.
-        $byRule = [];
+        // Group the candidate rules by the item they might act on, so we pick one winner per item.
+        $candidatesByItem = [];
 
-        foreach ($overduePairs as $pair) {
-            $byRule[$pair->rule_id][] = $pair;
+        foreach ($candidates as $candidate) {
+            $candidatesByItem[$candidate->extension . '.' . $candidate->item_id][] = $candidate;
         }
 
-        $failures = [];
+        $conditionEvaluator = new ConditionEvaluator();
+        $itemFieldResolver  = new ItemFieldResolver($this->getDatabase());
+        $app                = Factory::getApplication();
+        $failures           = [];
 
-        foreach ($byRule as $ruleId => $items) {
-            if (!$this->lockRule((int) $ruleId, $now)) {
-                // Another scheduler instance grabbed this rule between our SELECT and now
-                continue;
-            }
+        foreach ($candidatesByItem as $itemCandidates) {
+            $winningRule = $this->selectRuleForItem($itemCandidates, $nowDateTime, $conditionEvaluator, $itemFieldResolver);
 
-            try {
-                $nowDateTime  = new \DateTime($now, new \DateTimeZone('UTC'));
-                $transitionId = (int) $items[0]->transition_id;
-                $runAsUserId  = (int) ($items[0]->run_as_user_id ?? 0);
-                $app          = Factory::getApplication();
-                $originalUser = $app->getIdentity();
-
-                if ($runAsUserId > 0) {
-                    $runAsUser = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($runAsUserId);
-
-                    if ($runAsUser->id > 0) {
-                        $app->loadIdentity($runAsUser);
-                    }
-                }
-
-                foreach ($items as $item) {
-                    $deadline = $this->computeDeadline($item->entered_at, $item);
-
-                    if ($deadline === null || $deadline > $nowDateTime) {
-                        if ($deadline !== null) {
-                            $this->rescheduleItem((int) $item->schedule_id, $deadline);
-                        }
-
-                        continue;
-                    }
-
-                    try {
-                        $workflow = new Workflow($item->extension);
-
-                        if ($workflow->executeTransition([(int) $item->item_id], $transitionId, 'automation')) {
-                            $this->logAutomationRun($item, 0);
-                        } else {
-                            $link       = $this->itemEditLink($item);
-                            $note       = 'Transition could not be executed; permission denied, invalid transition, or stopped by a plugin.';
-                            $failures[] = 'Item ' . (int) $item->item_id . ' (transition ' . $transitionId . '): ' . $note . ($link !== '' ? ' - ' . $link : '');
-                            $this->logAutomationRun($item, 1, $note);
-                            $this->markRequiresIntervention((int) $item->schedule_id);
-                        }
-                    } catch (\Throwable $e) {
-                        $link       = $this->itemEditLink($item);
-                        $failures[] = 'Item ' . (int) $item->item_id . ' (transition ' . $transitionId . '): ' . $e->getMessage() . ($link !== '' ? ' - ' . $link : '');
-                        $this->logAutomationRun($item, 3, $e->getMessage());
-                        $this->markRequiresIntervention((int) $item->schedule_id);
-                    }
-                }
-            } finally {
-                $this->unlockRule((int) $ruleId);
-
-                if (isset($app, $originalUser)) {
-                    $app->loadIdentity($originalUser);
-                }
+            if ($winningRule !== null) {
+                $this->fireRule($winningRule, $app, $failures);
             }
         }
 
         if (!empty($failures)) {
             $summary = \count($failures) . ' automated transition(s) failed:' . "\n" . implode("\n", $failures);
 
-            // Logged to the scheduler log, and surfaced in the task-failure notification email.
             $this->logTask($summary, 'error');
             $this->snapshot['output_body'] = $summary;
 
@@ -209,6 +161,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 $db->quoteName('wta.interval_unit'),
                 $db->quoteName('wta.rule_type'),
                 $db->quoteName('wta.cron_expression'),
+                $db->quoteName('wta.item_filter'),
+                $db->quoteName('wta.fire_condition'),
                 $db->quoteName('wta.ordering'),
                 $db->quoteName('was.item_id'),
                 $db->quoteName('was.extension'),
@@ -230,74 +184,12 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->where($db->quoteName('was.next_transition_at') . ' <= :now')
             ->where($db->quoteName('was.requires_intervention') . ' = 0')
             ->where($db->quoteName('wta.published') . ' = 1')
-            ->where(
-                '(' . $db->quoteName('wta.locked_until') . ' IS NULL'
-                    . ' OR ' . $db->quoteName('wta.locked_until') . ' < :now)'
-            )
+
             ->bind(':now', $now)
             ->order($db->quoteName('wta.ordering') . ' ASC')
             ->setLimit(50);
 
         return $db->setQuery($overduePairsQuery)->loadObjectList() ?: [];
-    }
-
-    /**
-     * Automatically locks a rule so no other scheduler instance processes it concurrently.
-     *
-     * locked_until stores the EXPIRY time (not start time). it reads as
-     * "this rule is locked until this datetime." A row is considered unlocked if
-     * locked_until IS NULL or its expiry has already passed.
-     *
-     * @param integer $ruleId The workflow_transition_automation row ID.
-     * @param string $now Current datetime in SQL format.
-     *
-     * @return boolean True if we successfully acquired the lock.
-     *
-     * @since __DEPLOY_VERSION__
-     */
-    private function lockRule(int $ruleId, string $now): bool
-    {
-        $db = $this->getDatabase();
-        // Set expiry to 30 minutes from now
-        $lockedUntil = Factory::getDate($now)->add(new \DateInterval('PT30M'))->toSql();
-
-        $lockedRuleQuery = $db->getQuery(true)
-            ->update($db->quoteName('#__workflow_transition_automation'))
-            ->set($db->quoteName('locked_until') . ' = :lockedUntil')
-            ->where($db->quoteName('id') . ' = :id')
-            ->where(
-                '(' . $db->quoteName('locked_until') . ' IS NULL'
-                    . ' OR ' . $db->quoteName('locked_until') . ' < :now)'
-            )
-            ->bind(':lockedUntil', $lockedUntil)
-            ->bind(':id', $ruleId, ParameterType::INTEGER)
-            ->bind(':now', $now);
-
-        $db->setQuery($lockedRuleQuery)->execute();
-
-        return $db->getAffectedRows() > 0;
-    }
-
-    /**
-     * Releases the lock on a rule after all its items have been processed.
-     *
-     * @param integer $ruleId The workflow_transition_automation row ID.
-     *
-     * @return void
-     *
-     * @since __DEPLOY_VERSION__
-     */
-    private function unlockRule(int $ruleId): void
-    {
-        $db = $this->getDatabase();
-
-        $unlockRuleQuery = $db->getQuery(true)
-            ->update($db->quoteName('#__workflow_transition_automation'))
-            ->set($db->quoteName('locked_until') . ' = NULL')
-            ->where($db->quoteName('id') . ' = :id')
-            ->bind(':id', $ruleId, ParameterType::INTEGER);
-
-        $db->setQuery($unlockRuleQuery)->execute();
     }
 
     /**
@@ -366,31 +258,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->where($db->quoteName('id') . ' =:id')
             ->bind(':nextRunTime', $nextRunTime)
             ->bind(':id', $scheduleId, ParameterType::INTEGER);
-
-        $db->setQuery($query)->execute();
-    }
-
-    /**
-     * Stops an item from being retried after its transition failed.
-     *
-     * Clearing next_transition_at removes the item from the scheduler's pickup query
-     * so a permanently-failing transition does not re-notify on every run. The item
-     * is re-armed when it next enters a stage (manual transition or re-save).
-     *
-     * @param integer $scheduledId The workflow_automation_schedule row ID.
-     *
-     * @return void
-     *
-     * @since __DEPLOY_VERSION__
-     */
-    private function markItemFailed(int $scheduledId): void
-    {
-        $db    = $this->getDatabase();
-        $query = $db->getQuery(true)
-            ->update($db->quoteName('#__workflow_automation_schedule'))
-            ->set($db->quoteName('next_transition_at') . ' = NULL')
-            ->where($db->quoteName('id') . ' = :id')
-            ->bind(':id', $scheduledId, ParameterType::INTEGER);
 
         $db->setQuery($query)->execute();
     }
@@ -472,5 +339,136 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->bind(':id', $scheduleId, ParameterType::INTEGER);
 
         $db->setQuery($updateQuery)->execute();
+    }
+
+    /**
+     * Chooses which single rule, if any, should fire for one item this run.
+     *
+     * Considers every candidate rule for the item: it must be past its own deadline, its
+     * filter must scope the item in, and its live condition must currently hold. The highest
+     * priority survivor (lowest ordering) wins. If nothing fires, the stored deadline is
+     * corrected forward — unless a rule is only waiting on its condition, in which case the
+     * schedule is left so the item is re-checked next run.
+     *
+     * @param   object[]            $itemCandidates      Candidate rows for a single item.
+     * @param   \DateTime           $nowDateTime         Current time (UTC).
+     * @param   ConditionEvaluator  $conditionEvaluator  The expression evaluator.
+     * @param   ItemFieldResolver   $itemFieldResolver   The field resolver factory.
+     *
+     * @return  object|null  The winning candidate, or null if none should fire.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function selectRuleForItem(
+        array $itemCandidates,
+        \DateTime $nowDateTime,
+        ConditionEvaluator $conditionEvaluator,
+        ItemFieldResolver $itemFieldResolver
+    ): ?object {
+        $firstCandidate = $itemCandidates[0];
+        $resolveField   = $itemFieldResolver->forItem((int) $firstCandidate->item_id, $firstCandidate->extension);
+
+        $eligibleRules       = [];
+        $hasConditionBlocked = false;
+        $earliestFutureDue   = null;
+
+        foreach ($itemCandidates as $candidate) {
+            $deadline = $this->computeDeadline($candidate->entered_at, $candidate);
+
+            if ($deadline === null) {
+                continue;
+            }
+
+            // Not due yet by this rule's own timing: track the soonest future deadline.
+            if ($deadline > $nowDateTime) {
+                if ($earliestFutureDue === null || $deadline < $earliestFutureDue) {
+                    $earliestFutureDue = $deadline;
+                }
+
+                continue;
+            }
+
+            // Due, but does the rule's filter scope in this item at all?
+            if (!$conditionEvaluator->evaluate($candidate->item_filter, $resolveField)) {
+                continue;
+            }
+
+            // Due and in scope, but is the live condition satisfied right now?
+            if (!$conditionEvaluator->evaluate($candidate->fire_condition, $resolveField)) {
+                $hasConditionBlocked = true;
+
+                continue;
+            }
+
+            $eligibleRules[] = $candidate;
+        }
+
+        if (!empty($eligibleRules)) {
+            // Highest priority wins: the lowest ordering value.
+            usort($eligibleRules, static fn (object $a, object $b): int => (int) $a->ordering <=> (int) $b->ordering);
+
+            return $eligibleRules[0];
+        }
+
+        // Nothing fires this run. Only push the deadline forward when no rule is waiting on its
+        // condition — a condition-blocked item must stay due so it is re-checked next run.
+        if (!$hasConditionBlocked && $earliestFutureDue !== null) {
+            $this->rescheduleItem((int) $firstCandidate->schedule_id, $earliestFutureDue);
+        }
+
+        return null;
+    }
+
+    /**
+     * Executes the winning transition for an item, as its configured run-as user.
+     *
+     * @param   object                   $rule      The winning candidate row.
+     * @param   CMSApplicationInterface  $app       The application, for the identity swap.
+     * @param   string[]                 $failures  Collected failure messages (by reference).
+     *
+     * @return  void
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function fireRule(object $rule, CMSApplicationInterface $app, array &$failures): void
+    {
+        $transitionId = (int) $rule->transition_id;
+        $runAsUserId  = (int) ($rule->run_as_user_id ?? 0);
+        $originalUser = $app->getIdentity();
+
+        // Run as the configured user so the ACL check passes in a background context.
+        if ($runAsUserId > 0) {
+            $runAsUser = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($runAsUserId);
+
+            if ($runAsUser->id > 0) {
+                $app->loadIdentity($runAsUser);
+            }
+        }
+
+        try {
+            $workflow = new Workflow($rule->extension);
+
+            if ($workflow->executeTransition([(int) $rule->item_id], $transitionId, 'automation')) {
+                $this->logAutomationRun($rule, 0);
+            } else {
+                $failureNote = 'Transition could not be executed; permission denied, invalid transition, or stopped by a plugin.';
+                $editLink    = $this->itemEditLink($rule);
+                $failures[]  = 'Item ' . (int) $rule->item_id . ' (transition ' . $transitionId . '): '
+                    . $failureNote . ($editLink !== '' ? ' - ' . $editLink : '');
+
+                $this->logAutomationRun($rule, 1, $failureNote);
+                $this->markRequiresIntervention((int) $rule->schedule_id);
+            }
+        } catch (\Throwable $error) {
+            $editLink   = $this->itemEditLink($rule);
+            $failures[] = 'Item ' . (int) $rule->item_id . ' (transition ' . $transitionId . '): '
+                . $error->getMessage() . ($editLink !== '' ? ' - ' . $editLink : '');
+
+            $this->logAutomationRun($rule, 3, $error->getMessage());
+            $this->markRequiresIntervention((int) $rule->schedule_id);
+        } finally {
+            // Always restore the scheduler's original identity.
+            $app->loadIdentity($originalUser);
+        }
     }
 }
