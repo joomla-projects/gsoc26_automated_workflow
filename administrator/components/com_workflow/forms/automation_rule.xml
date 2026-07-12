@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<form>
+	<field
+		name="published"
+		type="radio"
+		layout="joomla.form.field.radio.switcher"
+		label="COM_WORKFLOW_AUTOMATION_ENABLED_LABEL"
+		default="1"
+	>
+		<option value="0">JNO</option>
+		<option value="1">JYES</option>
+	</field>
+
+	<field
+		name="ordering"
+		type="number"
+		label="COM_WORKFLOW_AUTOMATION_PRIORITY_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_PRIORITY_DESC"
+		default="0"
+	/>
+
+	<field
+		name="rule_type"
+		type="list"
+		label="COM_WORKFLOW_AUTOMATION_RULE_TYPE_LABEL"
+		default="interval"
+		validate="options"
+	>
+		<option value="interval">COM_WORKFLOW_AUTOMATION_RULE_TYPE_INTERVAL</option>
+		<option value="cron">COM_WORKFLOW_AUTOMATION_RULE_TYPE_CRON</option>
+	</field>
+
+	<field
+		name="interval_value"
+		type="number"
+		label="COM_WORKFLOW_AUTOMATION_INTERVAL_VALUE_LABEL"
+		min="1"
+		showon="rule_type:interval"
+	/>
+
+	<field
+		name="interval_unit"
+		type="list"
+		label="COM_WORKFLOW_AUTOMATION_INTERVAL_UNIT_LABEL"
+		default="minutes"
+		validate="options"
+		showon="rule_type:interval"
+	>
+		<option value="minutes">COM_WORKFLOW_AUTOMATION_UNIT_MINUTES</option>
+		<option value="hours">COM_WORKFLOW_AUTOMATION_UNIT_HOURS</option>
+		<option value="days">COM_WORKFLOW_AUTOMATION_UNIT_DAYS</option>
+		<option value="months">COM_WORKFLOW_AUTOMATION_UNIT_MONTHS</option>
+	</field>
+
+	<field
+		name="cron_expression"
+		type="text"
+		label="COM_WORKFLOW_AUTOMATION_CRON_LABEL"
+		hint="*/5 * * * *"
+		showon="rule_type:cron"
+	/>
+
+	<field
+		name="run_as_user_id"
+		type="user"
+		label="COM_WORKFLOW_AUTOMATION_RUN_AS_LABEL"
+	/>
+
+	<field
+		name="filter_match"
+		type="list"
+		label="COM_WORKFLOW_AUTOMATION_FILTER_MATCH_LABEL"
+		default="all"
+	>
+		<option value="all">COM_WORKFLOW_AUTOMATION_MATCH_ALL</option>
+		<option value="any">COM_WORKFLOW_AUTOMATION_MATCH_ANY</option>
+	</field>
+
+	<field
+		name="filter"
+		type="subform"
+		label="COM_WORKFLOW_AUTOMATION_FILTER_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_FILTER_DESC"
+		multiple="true"
+		layout="joomla.form.field.subform.repeatable"
+		formsource="administrator/components/com_workflow/forms/condition_group.xml"
+		min="0"
+	/>
+
+	<field
+		name="condition_match"
+		type="list"
+		label="COM_WORKFLOW_AUTOMATION_CONDITION_MATCH_LABEL"
+		default="all"
+	>
+		<option value="all">COM_WORKFLOW_AUTOMATION_MATCH_ALL</option>
+		<option value="any">COM_WORKFLOW_AUTOMATION_MATCH_ANY</option>
+	</field>
+
+	<field
+		name="condition"
+		type="subform"
+		label="COM_WORKFLOW_AUTOMATION_CONDITION_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_CONDITION_DESC"
+		multiple="true"
+		layout="joomla.form.field.subform.repeatable"
+		formsource="administrator/components/com_workflow/forms/condition_group.xml"
+		min="0"
+	/>
+</form>

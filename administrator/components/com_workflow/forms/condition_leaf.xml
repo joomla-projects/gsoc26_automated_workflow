@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<form>
+	<field
+		name="field"
+		type="list"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_FIELD_LABEL"
+		default="tag"
+	>
+		<option value="weekday">COM_WORKFLOW_AUTOMATION_FIELD_WEEKDAY</option>
+		<option value="date">COM_WORKFLOW_AUTOMATION_FIELD_DATE</option>
+		<option value="tag">COM_WORKFLOW_AUTOMATION_FIELD_TAG</option>
+		<option value="category">COM_WORKFLOW_AUTOMATION_FIELD_CATEGORY</option>
+		<option value="author_group">COM_WORKFLOW_AUTOMATION_FIELD_AUTHOR_GROUP</option>
+	</field>
+
+	<field
+		name="operator"
+		type="list"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_LABEL"
+		default="has"
+	>
+		<option value="is">COM_WORKFLOW_AUTOMATION_OP_IS</option>
+		<option value="is not">COM_WORKFLOW_AUTOMATION_OP_IS_NOT</option>
+		<option value="in">COM_WORKFLOW_AUTOMATION_OP_IN</option>
+		<option value="not in">COM_WORKFLOW_AUTOMATION_OP_NOT_IN</option>
+		<option value="has">COM_WORKFLOW_AUTOMATION_OP_HAS</option>
+		<option value="before">COM_WORKFLOW_AUTOMATION_OP_BEFORE</option>
+		<option value="after">COM_WORKFLOW_AUTOMATION_OP_AFTER</option>
+	</field>
+
+	<field
+		name="value_weekday"
+		type="list"
+		multiple="true"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		showon="field:weekday"
+	>
+		<option value="0">SUNDAY</option>
+		<option value="1">MONDAY</option>
+		<option value="2">TUESDAY</option>
+		<option value="3">WEDNESDAY</option>
+		<option value="4">THURSDAY</option>
+		<option value="5">FRIDAY</option>
+		<option value="6">SATURDAY</option>
+	</field>
+
+	<field
+		name="value_date"
+		type="calendar"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		format="%Y-%m-%d"
+		showon="field:date"
+	/>
+
+	<field
+		name="value_tag"
+		type="tag"
+		multiple="true"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		showon="field:tag"
+	/>
+
+	<field
+		name="value_category"
+		type="category"
+		extension="com_content"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		showon="field:category"
+	/>
+
+	<field
+		name="value_author_group"
+		type="usergrouplist"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		showon="field:author_group"
+	/>
+</form>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<form>
+	<field
+		name="group_match"
+		type="list"
+		label="COM_WORKFLOW_AUTOMATION_GROUP_MATCH_LABEL"
+		default="all"
+	>
+		<option value="all">COM_WORKFLOW_AUTOMATION_MATCH_ALL</option>
+		<option value="any">COM_WORKFLOW_AUTOMATION_MATCH_ANY</option>
+	</field>
+
+	<field
+		name="conditions"
+		type="subform"
+		label="COM_WORKFLOW_AUTOMATION_GROUP_CONDITIONS_LABEL"
+		multiple="true"
+		layout="joomla.form.field.subform.repeatable"
+		formsource="administrator/components/com_workflow/forms/condition_leaf.xml"
+		min="0"
+	/>
+</form>
