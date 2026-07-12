@@ -479,7 +479,7 @@ class TransitionModel extends AdminModel
 
     private function validateAutomation(array $rules): bool
     {
-        $app = Factory::getApplication();
+        $app              = Factory::getApplication();
         $missingRunAsUser = false;
 
         foreach ($rules as $rule) {
@@ -511,10 +511,10 @@ class TransitionModel extends AdminModel
      * @since __DEPLOY_VERSION__
      */
     private const LEAF_VALUE_KEYS = [
-        'weekday' => 'value_weekday',
-        'date' => 'value_date',
-        'tag' => 'value_tag',
-        'category' => 'value_category',
+        'weekday'      => 'value_weekday',
+        'date'         => 'value_date',
+        'tag'          => 'value_tag',
+        'category'     => 'value_category',
         'author_group' => 'value_author_group',
     ];
 

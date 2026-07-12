@@ -423,8 +423,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             // Highest priority wins: the lowest ordering value. oldest rule wins on a tie
             usort(
                 $eligibleRules,
-                static fn(object $a, object $b): int =>
-                [(int) $a->ordering, (int) $a->rule_id] <=> [(int) $b->ordering, (int) $b->rule_id]
+                static fn (object $a, object $b): int => [(int) $a->ordering, (int) $a->rule_id] <=> [(int) $b->ordering, (int) $b->rule_id]
             );
             return $eligibleRules[0];
         }
