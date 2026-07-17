@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS `#__workflow_automation_schedule` (
     UNIQUE KEY `idx_item_extension` (`item_id`, `extension`),
     KEY `idx_stage_entered` (`stage_id`, `entered_at`),
     KEY `idx_next_transition_at` (`next_transition_at`),
-	KEY `idx_requires_intervention` (`requires_intervention`),
+	KEY `idx_requires_intervention` (`requires_intervention`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (

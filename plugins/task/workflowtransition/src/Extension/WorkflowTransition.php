@@ -25,6 +25,7 @@ use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
 use Joomla\Plugin\Task\WorkflowTransition\Condition\ConditionEvaluator;
 use Joomla\Plugin\Task\WorkflowTransition\Condition\ItemFieldResolver;
+use Joomla\Plugin\Task\WorkflowTransition\Dto\DueAutomation;
 
 // phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;
@@ -78,16 +79,16 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     }
 
     /**
-     * Main task routine - called by the scheduler when the task is due.
+     * Main task routine — called by the scheduler when the task is due.
      *
-     * Groups overdue (item, rule) pairs by rule. Each rule is locked once before
-     * processing all the items waiting on it, then unlocked in finally. Items
-     * are verified individually because next_transition_at reflects the EARLIEST
-     * rule deadline — a second rule on the same stage might not be due yet.
+     * Groups the due candidates by item, then for each item fires a single rule: it must be
+     * past its deadline, pass its filter, and meet its live condition, with the highest-priority
+     * survivor winning. Concurrency is handled by the scheduler's own per-task lock, so no
+     * per-rule locking is done here.
      *
      * @param   ExecuteTaskEvent  $event  The scheduler event.
      *
-     * @return  integer  TaskStatus::OK on completion.
+     * @return  integer  A TaskStatus code (OK, or KNOCKOUT when a transition failed).
      *
      * @since   __DEPLOY_VERSION__
      */
@@ -95,7 +96,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     {
         $now         = Factory::getDate()->toSql();
         $nowDateTime = new \DateTime($now, new \DateTimeZone('UTC'));
-        $candidates  = $this->fetchOverduePairs($now);
+        $candidates  = $this->fetchOverdueCandidates($now);
 
         if (empty($candidates)) {
             return TaskStatus::OK;
@@ -134,20 +135,19 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     }
 
     /**
-     * Fetches all (item, rule) pairs that are overdue and ready to process.
+     * Fetches the automation rules that are due to be considered for their items this run.
      *
-     * We join all three tables so that each returned row contains both the item's
-     * schedule data and the rule that should fire it. The WHERE clause uses
-     * next_transition_at for a fast indexed scan and also filters out rules that
-     * are currently locked by another scheduler instance.
+     * Joins the schedule, transition, and rule tables so each row carries both the item's
+     * schedule data and a rule that could fire it. The WHERE clause uses next_transition_at
+     * for a fast indexed scan and skips items already flagged for manual intervention.
      *
-     * @param string $now Current datetime in SQL format.
+     * @param   string  $now  Current datetime in SQL format.
      *
-     * @return object[]
+     * @return  DueAutomation[]
      *
-     * @since __DEPLOY_VERSION__
+     * @since   __DEPLOY_VERSION__
      */
-    private function fetchOverduePairs(string $now): array
+    private function fetchOverdueCandidates(string $now): array
     {
         $db = $this->getDatabase();
 
@@ -189,7 +189,10 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->order($db->quoteName('wta.ordering') . ' ASC')
             ->setLimit(50);
 
-        return $db->setQuery($overduePairsQuery)->loadObjectList() ?: [];
+        return array_map(
+            [DueAutomation::class, 'fromRow'],
+            $db->setQuery($overduePairsQuery)->loadObjectList() ?: []
+        );
     }
 
     /**
@@ -206,7 +209,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     {
         if ($rule->rule_type === 'cron') {
             if (empty($rule->cron_expression)) {
-                throw new \RuntimeException('Automation rule ' . $rule->rule_id . ' has rule_type cron but no cron_expression set.');
+                return null;
             }
 
             $cronExpression = new CronExpression($rule->cron_expression);
@@ -314,7 +317,12 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             return '';
         }
 
-        return Uri::root() . 'administrator/index.php?option=' . $option . '&task=' . $type . '.edit&id=' . (int) $item->item_id;
+        $base = (string) Factory::getApplication()->get('live_site');
+
+        if ($base === '') {
+            $base = Uri::root();
+        }
+        return rtrim($base, '/') . '/administrator/index.php?option=' . $option . '&task=' . $type . '.edit&id=' . $item->item_id;
     }
 
     /**
@@ -366,7 +374,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         ItemFieldResolver $itemFieldResolver
     ): ?object {
         $firstCandidate = $itemCandidates[0];
-        $resolveField   = $itemFieldResolver->forItem((int) $firstCandidate->item_id, $firstCandidate->extension);
+        $scheduleId     = (int) $firstCandidate->schedule_id;
+        $fieldResolver  = $itemFieldResolver->forItem((int) $firstCandidate->item_id, $firstCandidate->extension);
 
         $eligibleRules       = [];
         $hasConditionBlocked = false;
@@ -389,12 +398,12 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             }
 
             // Due, but does the rule's filter scope in this item at all?
-            if (!$conditionEvaluator->evaluate($candidate->item_filter, $resolveField)) {
+            if (!$conditionEvaluator->evaluate($candidate->item_filter, $fieldResolver)) {
                 continue;
             }
 
             // Due and in scope, but is the live condition satisfied right now?
-            if (!$conditionEvaluator->evaluate($candidate->fire_condition, $resolveField)) {
+            if (!$conditionEvaluator->evaluate($candidate->fire_condition, $fieldResolver)) {
                 $hasConditionBlocked = true;
 
                 continue;
@@ -413,7 +422,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         // Nothing fires this run. Only push the deadline forward when no rule is waiting on its
         // condition — a condition-blocked item must stay due so it is re-checked next run.
         if (!$hasConditionBlocked && $earliestFutureDue !== null) {
-            $this->rescheduleItem((int) $firstCandidate->schedule_id, $earliestFutureDue);
+            $this->rescheduleItem($scheduleId, $earliestFutureDue);
         }
 
         return null;
@@ -422,7 +431,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * Executes the winning transition for an item, as its configured run-as user.
      *
-     * @param   object                   $rule      The winning candidate row.
+     * @param DueAutomation $rule      The winning candidate row.
      * @param   CMSApplicationInterface  $app       The application, for the identity swap.
      * @param   string[]                 $failures  Collected failure messages (by reference).
      *
@@ -430,42 +439,41 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function fireRule(object $rule, CMSApplicationInterface $app, array &$failures): void
+    private function fireRule(DueAutomation $rule, CMSApplicationInterface $app, array &$failures): void
     {
         $transitionId = (int) $rule->transition_id;
-        $runAsUserId  = (int) ($rule->run_as_user_id ?? 0);
+        $runAsUserId  = $rule->run_as_user_id;
         $originalUser = $app->getIdentity();
 
-        // Run as the configured user so the ACL check passes in a background context.
-        if ($runAsUserId > 0) {
-            $runAsUser = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($runAsUserId);
-
-            if ($runAsUser->id > 0) {
-                $app->loadIdentity($runAsUser);
-            }
-        }
-
         try {
+            if ($runAsUserId > 0) {
+                $runAsUser = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($runAsUserId);
+
+                if ($runAsUser->id > 0) {
+                    $app->loadIdentity($runAsUser);
+                }
+            }
+
             $workflow = new Workflow($rule->extension);
 
-            if ($workflow->executeTransition([(int) $rule->item_id], $transitionId, 'automation')) {
+            if ($workflow->executeTransition([$rule->item_id], $transitionId, 'automation')) {
                 $this->logAutomationRun($rule, 0);
             } else {
                 $failureNote = 'Transition could not be executed; permission denied, invalid transition, or stopped by a plugin.';
                 $editLink    = $this->itemEditLink($rule);
-                $failures[]  = 'Item ' . (int) $rule->item_id . ' (transition ' . $transitionId . '): '
+                $failures[]  = 'Item ' . $rule->item_id . ' (transition ' . $transitionId . '): '
                     . $failureNote . ($editLink !== '' ? ' - ' . $editLink : '');
 
                 $this->logAutomationRun($rule, 1, $failureNote);
-                $this->markRequiresIntervention((int) $rule->schedule_id);
+                $this->markRequiresIntervention($rule->schedule_id);
             }
         } catch (\Throwable $error) {
             $editLink   = $this->itemEditLink($rule);
-            $failures[] = 'Item ' . (int) $rule->item_id . ' (transition ' . $transitionId . '): '
+            $failures[] = 'Item ' . $rule->item_id . ' (transition ' . $transitionId . '): '
                 . $error->getMessage() . ($editLink !== '' ? ' - ' . $editLink : '');
 
             $this->logAutomationRun($rule, 3, $error->getMessage());
-            $this->markRequiresIntervention((int) $rule->schedule_id);
+            $this->markRequiresIntervention($rule->schedule_id);
         } finally {
             // Always restore the scheduler's original identity.
             $app->loadIdentity($originalUser);

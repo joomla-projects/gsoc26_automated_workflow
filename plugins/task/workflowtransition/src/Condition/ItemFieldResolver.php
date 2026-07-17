@@ -79,11 +79,11 @@ final class ItemFieldResolver
      * @param integer $itemId The content item id.
      * @param string $extension The workflow extension.
      *
-     * @return mixed A scalar, a list or null for an unknown field.
+     * @return int|string|array|null
      *
      * @since __DEPLOY_VERSION__
      */
-    private function resolveField(string $fieldName, int $itemId, string $extension)
+    private function resolveField(string $fieldName, int $itemId, string $extension): int|string|array|null
     {
         switch ($fieldName) {
             case 'weekday':
