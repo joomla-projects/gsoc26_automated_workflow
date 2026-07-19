@@ -86,7 +86,7 @@ final class ItemFieldResolver
     private function resolveField(string $fieldName, int $itemId, string $extension): int|string|array|null
     {
         switch ($fieldName) {
-            case 'weekday':
+            case 'day_of_week':
                 return (int) Factory::getDate('now')->format('w');  // 0 = Sunday
 
             case 'now':

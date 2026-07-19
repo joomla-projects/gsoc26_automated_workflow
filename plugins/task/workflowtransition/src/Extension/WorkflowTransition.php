@@ -83,8 +83,15 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * Groups the due candidates by item, then for each item fires a single rule: it must be
      * past its deadline, pass its filter, and meet its live condition, with the highest-priority
-     * survivor winning. Concurrency is handled by the scheduler's own per-task lock, so no
-     * per-rule locking is done here.
+     * survivor winning.
+     *
+     * Assumptions about the operating environment:
+     * - The scheduler holds a per-task lock and will not run this task concurrently with itself,
+     *   so no per-rule or per-item locking is done here.
+     * - Candidates are read once at the start of the run, so an item may be moved by a manual
+     *   transition while the run is still in progress. Workflow::executeTransition() re-checks
+     *   the item's current stage association before acting, so a stale candidate cannot fire a
+     *   transition that no longer applies. See fireRule() for how that outcome is reported.
      *
      * @param   ExecuteTaskEvent  $event  The scheduler event.
      *
@@ -455,6 +462,11 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             }
 
             $workflow = new Workflow($rule->extension);
+
+            // executeTransition() re-checks the item's current stage association, so a candidate
+            // made stale by a manual transition earlier in this run returns false instead of
+            // firing. Note that false is currently indistinguishable from a genuine failure, so
+            // such a race is reported as one; see the follow-up issue on classifying exit codes.
 
             if ($workflow->executeTransition([$rule->item_id], $transitionId, 'automation')) {
                 $this->logAutomationRun($rule, 0);
