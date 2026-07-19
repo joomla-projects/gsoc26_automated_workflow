@@ -124,9 +124,20 @@ class TransitionModel extends AdminModel
         if (!empty($item->id)) {
             $db                        = $this->getDatabase();
             $transitionAutomationQuery = $db->getQuery(true)
-                ->select('*')
-                ->from($db->quoteName('#__workflow_transition_automation'))
+                ->select($db->quoteName([
+                    'id',
+                    'published',
+                    'ordering',
+                    'rule_type',
+                    'interval_value',
+                    'interval_unit',
+                    'cron_expression',
+                    'run_as_user_id',
+                    'item_filter',
+                    'fire_condition',
+                ]))->from($db->quoteName('#__workflow_transition_automation'))
                 ->where($db->quoteName('transition_id') . ' = :id')
+                ->order($db->quoteName('ordering') . ' ASC')
                 ->bind(':id', $item->id, ParameterType::INTEGER);
 
             $rules = $db->setQuery($transitionAutomationQuery)->loadAssocList() ?: [];
@@ -387,38 +398,49 @@ class TransitionModel extends AdminModel
         $now  = Factory::getDate()->toSql();
 
         // Replace-all: clear this transition's rules, then re-insert the submitted, enabled ones.
-        $db->setQuery(
-            $db->getQuery(true)
-                ->delete($db->quoteName('#__workflow_transition_automation'))
-                ->where($db->quoteName('transition_id') . ' = :id')
-                ->bind(':id', $transitionId, ParameterType::INTEGER)
-        )->execute();
+        // Wrapped in a transaction so a failure mid-save can't wipe the existing configuration.
+        try {
+            $db->transactionStart();
 
-        foreach ($rules as $rule) {
-            // Skip rows the editor left disabled.
-            if (empty((int) ($rule['published'] ?? 0))) {
-                continue;
+            $db->setQuery(
+                $db->getQuery(true)
+                    ->delete($db->quoteName('#__workflow_transition_automation'))
+                    ->where($db->quoteName('transition_id') . ' = :id')
+                    ->bind(':id', $transitionId, ParameterType::INTEGER)
+            )->execute();
+
+            foreach ($rules as $rule) {
+                // Skip rows the editor left disabled.
+                if (empty((int) ($rule['published'] ?? 0))) {
+                    continue;
+                }
+
+                $ruleRow = (object) [
+                    'transition_id'   => $transitionId,
+                    'published'       => 1,
+                    'ordering'        => (int) ($rule['ordering'] ?? 0),
+                    'rule_type'       => $rule['rule_type'] ?? 'interval',
+                    'interval_value'  => (int) ($rule['interval_value'] ?? 0),
+                    'interval_unit'   => $rule['interval_unit'] ?? 'minutes',
+                    'cron_expression' => $rule['cron_expression'] ?? '',
+                    'run_as_user_id'  => (int) ($rule['run_as_user_id'] ?? 0),
+                    'loop_mode'       => 0,
+                    'item_filter'     => $this->buildExpressionJson($rule['filter_match'] ?? 'all', $rule['filter'] ?? []),
+                    'fire_condition'  => $this->buildExpressionJson($rule['condition_match'] ?? 'all', $rule['condition'] ?? []),
+                    'created'         => $now,
+                    'created_by'      => $user->id,
+                    'modified'        => $now,
+                    'modified_by'     => $user->id,
+                ];
+
+                $db->insertObject('#__workflow_transition_automation', $ruleRow);
             }
 
-            $ruleRow = (object) [
-                'transition_id'   => $transitionId,
-                'published'       => 1,
-                'ordering'        => (int) ($rule['ordering'] ?? 0),
-                'rule_type'       => $rule['rule_type'] ?? 'interval',
-                'interval_value'  => (int) ($rule['interval_value'] ?? 0),
-                'interval_unit'   => $rule['interval_unit'] ?? 'minutes',
-                'cron_expression' => $rule['cron_expression'] ?? '',
-                'run_as_user_id'  => (int) ($rule['run_as_user_id'] ?? 0),
-                'loop_mode'       => 0,
-                'item_filter'     => $this->buildExpressionJson($rule['filter_match'] ?? 'all', $rule['filter'] ?? []),
-                'fire_condition'  => $this->buildExpressionJson($rule['condition_match'] ?? 'all', $rule['condition'] ?? []),
-                'created'         => $now,
-                'created_by'      => $user->id,
-                'modified'        => $now,
-                'modified_by'     => $user->id,
-            ];
+            $db->transactionCommit();
+        } catch (\Throwable $error) {
+            $db->transactionRollback();
 
-            $db->insertObject('#__workflow_transition_automation', $ruleRow);
+            throw $error;
         }
     }
 
@@ -511,7 +533,7 @@ class TransitionModel extends AdminModel
      * @since __DEPLOY_VERSION__
      */
     private const LEAF_VALUE_KEYS = [
-        'weekday'      => 'value_weekday',
+        'day_of_week'  => 'value_day_of_week',
         'date'         => 'value_date',
         'tag'          => 'value_tag',
         'category'     => 'value_category',
@@ -528,7 +550,7 @@ class TransitionModel extends AdminModel
      * @since __DEPLOY_VERSION__
      */
     private const LEAF_OPERATOR_KEYS = [
-        'weekday'      => 'operator_weekday',
+        'day_of_week'  => 'operator_day_of_week',
         'date'         => 'operator_date',
         'tag'          => 'operator_tag',
         'category'     => 'operator_category',

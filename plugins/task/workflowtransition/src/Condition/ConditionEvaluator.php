@@ -140,7 +140,7 @@ final class ConditionEvaluator
      *
      * @param mixed $actualValue The item's value (may be scalar or a list, e.g. tags).
      * @param string $operatorName One of: is, is not, in, not in, has, not has, before,
-     * after.
+     * after, on, not no.
      * @param mixed $expectedValue The value stored on the rule.
      *
      * @return boolean
@@ -184,6 +184,15 @@ final class ConditionEvaluator
 
             case 'after':
                 return $this->toTimestamp($actualValue) > $this->toTimestamp($expectedValue);
+
+            case 'on':
+                // Dates compare at calendar-day granularity: the resolver returns a full
+                // datetime while the form submits Y-m-d, so comparing the raw values would
+                // never match.
+                return $this->toDateString($actualValue) === $this->toDateString($expectedValue);
+
+            case 'not on':
+                return !$this->compare($actualValue, 'on', $expectedValue);
 
             default:
                 return false;
@@ -237,5 +246,19 @@ final class ConditionEvaluator
         $parsedTimestamp = strtotime((string) $value);
 
         return $parsedTimestamp === false ? 0 : $parsedTimestamp;
+    }
+
+    /**
+     * Reduces a datetime to its calendar day, so date equality ignores the time part.
+     *
+     * @param mixed $value A datetime string or numeric timestamp.
+     *
+     * @return string The calendar day as Y-m-d.
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function toDateString($value): string
+    {
+        return gmdate('Y-m-d', $this->toTimestamp($value));
     }
 }

@@ -11,7 +11,7 @@
 		validate="options"
 		default="tag"
 	>
-		<option value="weekday">COM_WORKFLOW_AUTOMATION_FIELD_WEEKDAY</option>
+		<option value="day_of_week">COM_WORKFLOW_AUTOMATION_FIELD_DAY_OF_WEEK</option>
 		<option value="date">COM_WORKFLOW_AUTOMATION_FIELD_DATE</option>
 		<option value="tag">COM_WORKFLOW_AUTOMATION_FIELD_TAG</option>
 		<option value="category">COM_WORKFLOW_AUTOMATION_FIELD_CATEGORY</option>
@@ -19,13 +19,13 @@
 	</field>
 
 	<field
-		name="operator_weekday"
+		name="operator_day_of_week"
 		type="list"
 		label="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_LABEL"
 		description="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_DESC"
 		validate="options"
 		default="in"
-		showon="field:weekday"
+		showon="field:day_of_week"
 	>
 		<option value="in">COM_WORKFLOW_AUTOMATION_OP_IN</option>
 		<option value="not in">COM_WORKFLOW_AUTOMATION_OP_NOT_IN</option>
@@ -44,6 +44,8 @@
 	>
 		<option value="after">COM_WORKFLOW_AUTOMATION_OP_AFTER</option>
 		<option value="before">COM_WORKFLOW_AUTOMATION_OP_BEFORE</option>
+		<option value="on">COM_WORKFLOW_AUTOMATION_OP_ON</option>
+		<option value="not on">COM_WORKFLOW_AUTOMATION_OP_NOT_ON</option>
 	</field>
 
 	<field
@@ -86,13 +88,13 @@
 	</field>
 
 	<field
-		name="value_weekday"
+		name="value_day_of_week"
 		type="list"
 		multiple="true"
 		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
 		description="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_DESC"
 		validate="options"
-		showon="field:weekday"
+		showon="field:day_of_week"
 	>
 		<option value="0">SUNDAY</option>
 		<option value="1">MONDAY</option>
