@@ -57,7 +57,7 @@ $extension = $this->escape((string) $this->state->get('filter.extension'));
                                 $resetLink = ((int) $item->exit_code !== 0 && !empty($item->requires_intervention))
                                     ? Route::_('index.php?option=com_workflow&task=logs.reset&item_id=' . (int) $item->item_id . '&extension=' . urlencode($item->extension) . '&' . Session::getFormToken() . '=1')
                                     : '';
-                            ?>
+                                ?>
                                 <tr>
                                     <td><?php echo HTMLHelper::_('date', $item->executed_at, Text::_('DATE_FORMAT_LC5')); ?></td>
                                     <td>

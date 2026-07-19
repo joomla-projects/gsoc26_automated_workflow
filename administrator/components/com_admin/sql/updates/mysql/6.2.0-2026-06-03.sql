@@ -7,17 +7,18 @@ CREATE TABLE IF NOT EXISTS `#__workflow_transition_automation` (
     `interval_value` int DEFAULT NULL,
     `interval_unit` varchar(10) DEFAULT NULL COMMENT 'minutes, hours, days, months',
     `cron_expression` varchar(100) DEFAULT NULL,
+	`item_filter` text COMMENT 'JSON expression tree: which items this rule applies to (evaluated at selection)',
+	`fire_condition` text COMMENT 'JSON expression tree: gate evaluated live at fire time',
     `run_as_user_id` int NOT NULL DEFAULT 0 COMMENT 'User identity used to execute the transition',
     `loop_mode` tinyint NOT NULL DEFAULT 0 COMMENT 'Chain into the target stage rule when set',
-    `locked_until` datetime DEFAULT NULL COMMENT 'Lock expiry: NULL means unlocked',
     `created` datetime NOT NULL,
     `created_by` int NOT NULL DEFAULT 0,
     `modified` datetime NOT NULL,
     `modified_by` int NOT NULL DEFAULT 0,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `idx_transition` (`transition_id`),
-    KEY `idx_published` (`published`),
-    KEY `idx_run_as` (`run_as_user_id`)
+	KEY `idx_transition` (`transition_id`),
+	KEY `idx_published` (`published`),
+	KEY `idx_run_as` (`run_as_user_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `#__workflow_automation_schedule` (
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS `#__workflow_automation_schedule` (
     UNIQUE KEY `idx_item_extension` (`item_id`, `extension`),
     KEY `idx_stage_entered` (`stage_id`, `entered_at`),
     KEY `idx_next_transition_at` (`next_transition_at`),
-	KEY `idx_requires_intervention` (`requires_intervention`),
+	KEY `idx_requires_intervention` (`requires_intervention`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (
