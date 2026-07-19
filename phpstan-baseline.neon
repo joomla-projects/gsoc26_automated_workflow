@@ -1411,11 +1411,6 @@ parameters:
 			identifier: method.deprecated
 			count: 1
 			path: administrator/components/com_contenthistory/src/View/Preview/HtmlView.php
-		-
-			message: '#^Access to an undefined property Joomla\\Plugin\\Task\\WorkflowTransition\\Extension\\WorkflowTransition\:\:\$app\.$#'
-			identifier: property.notFound
-			count: 2
-			path: plugins/task/workflowtransition/src/Extension/WorkflowTransition.php
 
 		-
 			message: '''
@@ -14184,6 +14179,12 @@ parameters:
 			identifier: property.notFound
 			count: 2
 			path: plugins/task/updatenotification/src/Extension/UpdateNotification.php
+
+		-
+			message: '#^Access to an undefined property Joomla\\Plugin\\Task\\WorkflowTransition\\Extension\\WorkflowTransition\:\:\$app\.$#'
+			identifier: property.notFound
+			count: 2
+			path: plugins/task/workflowtransition/src/Extension/WorkflowTransition.php
 
 		-
 			message: '''
