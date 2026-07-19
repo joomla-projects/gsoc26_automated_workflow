@@ -519,6 +519,23 @@ class TransitionModel extends AdminModel
     ];
 
     /**
+     * Maps a leaf field to the form input that carries its operator.
+     *
+     * Operators are constrained per field (a tag list can't use a scalar comparison),
+     * so each field type gets its own showon-toggled operator input.
+     *
+     * @var array<string, string>
+     * @since __DEPLOY_VERSION__
+     */
+    private const LEAF_OPERATOR_KEYS = [
+        'weekday'      => 'operator_weekday',
+        'date'         => 'operator_date',
+        'tag'          => 'operator_tag',
+        'category'     => 'operator_category',
+        'author_group' => 'operator_author_group',
+    ];
+
+    /**
      * Builds an expression-tree JSON string from a match mode and a flat list of leaf rows.
      *
      * @param string $match 'all' (AND) or 'any' (OR).
@@ -570,10 +587,17 @@ class TransitionModel extends AdminModel
         $leafNodes = [];
 
         foreach ($leaves as $leaf) {
-            $field    = trim((string) ($leaf['field'] ?? ''));
-            $operator = trim((string) ($leaf['operator'] ?? ''));
+            $field = trim((string) ($leaf['field'] ?? ''));
 
-            if ($field === '' || $operator === '') {
+            if ($field === '') {
+                continue;
+            }
+
+            // The operator lives in the input matching the selected field.
+            $operatorKey = self::LEAF_OPERATOR_KEYS[$field] ?? 'operator';
+            $operator    = trim((string) ($leaf[$operatorKey] ?? ''));
+
+            if ($operator === '') {
                 continue;
             }
 
@@ -596,14 +620,14 @@ class TransitionModel extends AdminModel
 
 
     /**
-     * Splits a stored expression-tree JSON back into a match mode and flat leaf rows for the form.
+     * Splits a stored expression-tree JSON back into a match mode and the group rows for the form.
      *
-     * Only top-level leaves are returned; nested groups (which the flat builder can't render) are
-     * skipped, so a hand-authored nested tree degrades gracefully instead of breaking the form.
+     * The builder renders two levels (an outer match over groups, each group holding leaves), so
+     * anything nested deeper is skipped rather than breaking the form.
      *
      * @param   string|null  $json  The stored JSON tree.
      *
-     * @return  array  A [string $match, array $leaves] pair.
+     * @return  array  A [string $match, array $groups] pair.
      *
      * @since   __DEPLOY_VERSION__
      */
@@ -623,13 +647,6 @@ class TransitionModel extends AdminModel
         $groups = [];
 
         foreach ($tree['children'] ?? [] as $groupNode) {
-            // Back-compat: old flat data has bare leaves here; wrap each in a single "all" group.
-            if (isset($groupNode['field'])) {
-                $groups[] = ['group_match' => 'all', 'conditions' => [$this->parseLeaf($groupNode)]];
-
-                continue;
-            }
-
             $leaves = [];
 
             foreach ($groupNode['children'] ?? [] as $leafNode) {
@@ -661,13 +678,14 @@ class TransitionModel extends AdminModel
      */
     private function parseLeaf(array $leafNode): array
     {
-        $field    = (string) ($leafNode['field'] ?? '');
-        $valueKey = self::LEAF_VALUE_KEYS[$field] ?? 'value';
+        $field       = (string) ($leafNode['field'] ?? '');
+        $valueKey    = self::LEAF_VALUE_KEYS[$field] ?? 'value';
+        $operatorKey = self::LEAF_OPERATOR_KEYS[$field] ?? 'operator';
 
         return [
-            'field'    => $field,
-            'operator' => $leafNode['operator'] ?? 'is',
-            $valueKey  => $leafNode['value'] ?? '',
+            'field'      => $field,
+            $operatorKey => $leafNode['operator'] ?? 'is',
+            $valueKey    => $leafNode['value'] ?? '',
         ];
     }
 }

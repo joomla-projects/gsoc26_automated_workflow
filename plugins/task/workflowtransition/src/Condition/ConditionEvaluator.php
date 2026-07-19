@@ -4,7 +4,7 @@
  * @package Joomla.Plugin
  * @subpackage Task.WorkflowTransition
  *
- * @copyright (C) 2026 Open Source Matters, Inc. <https:/>/www.joomla.org>
+ * @copyright (C) 2026 Open Source Matters, Inc. <https://www.joomla.org>
  * @license GNU General Public License version 2 or later; see LICENSE.txt
  */
 
@@ -139,7 +139,7 @@ final class ConditionEvaluator
      * Applies a single comparison operator.
      *
      * @param mixed $actualValue The item's value (may be scalar or a list, e.g. tags).
-     * @param string $operatorName One of: is, is not, in, not in, has, before,
+     * @param string $operatorName One of: is, is not, in, not in, has, not has, before,
      * after.
      * @param mixed $expectedValue The value stored on the rule.
      *
@@ -175,6 +175,9 @@ final class ConditionEvaluator
                 }
 
                 return false;
+            case 'not has':
+                // Negation of "has": the list must contain none of the wanted values.
+                return !$this->compare($actualValue, 'has', $expectedValue);
 
             case 'before':
                 return $this->toTimestamp($actualValue) < $this->toTimestamp($expectedValue);

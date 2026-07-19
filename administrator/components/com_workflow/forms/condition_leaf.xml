@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <form>
+	<config>
+		<inlinehelp button="show"/>
+	</config>
 	<field
 		name="field"
 		type="list"
 		label="COM_WORKFLOW_AUTOMATION_LEAF_FIELD_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_FIELD_DESC"
+		validate="options"
 		default="tag"
 	>
 		<option value="weekday">COM_WORKFLOW_AUTOMATION_FIELD_WEEKDAY</option>
@@ -14,18 +19,70 @@
 	</field>
 
 	<field
-		name="operator"
+		name="operator_weekday"
 		type="list"
 		label="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_DESC"
+		validate="options"
+		default="in"
+		showon="field:weekday"
+	>
+		<option value="in">COM_WORKFLOW_AUTOMATION_OP_IN</option>
+		<option value="not in">COM_WORKFLOW_AUTOMATION_OP_NOT_IN</option>
+		<option value="is">COM_WORKFLOW_AUTOMATION_OP_IS</option>
+		<option value="is not">COM_WORKFLOW_AUTOMATION_OP_IS_NOT</option>
+	</field>
+
+	<field
+		name="operator_date"
+		type="list"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_DESC"
+		validate="options"
+		default="after"
+		showon="field:date"
+	>
+		<option value="after">COM_WORKFLOW_AUTOMATION_OP_AFTER</option>
+		<option value="before">COM_WORKFLOW_AUTOMATION_OP_BEFORE</option>
+	</field>
+
+	<field
+		name="operator_tag"
+		type="list"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_DESC"
+		validate="options"
 		default="has"
+		showon="field:tag"
+	>
+		<option value="has">COM_WORKFLOW_AUTOMATION_OP_HAS</option>
+		<option value="not has">COM_WORKFLOW_AUTOMATION_OP_NOT_HAS</option>
+	</field>
+
+	<field
+		name="operator_category"
+		type="list"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_DESC"
+		validate="options"
+		default="is"
+		showon="field:category"
 	>
 		<option value="is">COM_WORKFLOW_AUTOMATION_OP_IS</option>
 		<option value="is not">COM_WORKFLOW_AUTOMATION_OP_IS_NOT</option>
-		<option value="in">COM_WORKFLOW_AUTOMATION_OP_IN</option>
-		<option value="not in">COM_WORKFLOW_AUTOMATION_OP_NOT_IN</option>
+	</field>
+
+	<field
+		name="operator_author_group"
+		type="list"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_OPERATOR_DESC"
+		validate="options"
+		default="has"
+		showon="field:author_group"
+	>
 		<option value="has">COM_WORKFLOW_AUTOMATION_OP_HAS</option>
-		<option value="before">COM_WORKFLOW_AUTOMATION_OP_BEFORE</option>
-		<option value="after">COM_WORKFLOW_AUTOMATION_OP_AFTER</option>
+		<option value="not has">COM_WORKFLOW_AUTOMATION_OP_NOT_HAS</option>
 	</field>
 
 	<field
@@ -33,6 +90,8 @@
 		type="list"
 		multiple="true"
 		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_DESC"
+		validate="options"
 		showon="field:weekday"
 	>
 		<option value="0">SUNDAY</option>
@@ -48,6 +107,7 @@
 		name="value_date"
 		type="calendar"
 		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_DESC"
 		format="%Y-%m-%d"
 		showon="field:date"
 	/>
@@ -57,6 +117,7 @@
 		type="tag"
 		multiple="true"
 		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_DESC"
 		showon="field:tag"
 	/>
 
@@ -65,6 +126,7 @@
 		type="category"
 		extension="com_content"
 		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_DESC"
 		showon="field:category"
 	/>
 
@@ -72,6 +134,7 @@
 		name="value_author_group"
 		type="usergrouplist"
 		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_DESC"
 		showon="field:author_group"
 	/>
 </form>
