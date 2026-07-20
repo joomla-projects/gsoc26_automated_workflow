@@ -76,10 +76,10 @@
 	/>
 
 	<field
-		name="filter_match"
+		name="condition_match"
 		type="list"
-		label="COM_WORKFLOW_AUTOMATION_FILTER_MATCH_LABEL"
-		description="COM_WORKFLOW_AUTOMATION_FILTER_MATCH_DESC"
+		label="COM_WORKFLOW_AUTOMATION_TREE_MATCH_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_TREE_MATCH_DESC"
 		validate="options"
 		default="all"
 	>
@@ -88,36 +88,24 @@
 	</field>
 
 	<field
-		name="filter"
+		name="conditions"
 		type="subform"
-		label="COM_WORKFLOW_AUTOMATION_FILTER_LABEL"
-		description="COM_WORKFLOW_AUTOMATION_FILTER_DESC"
+		label="COM_WORKFLOW_AUTOMATION_TREE_CONDITIONS_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_TREE_CONDITIONS_DESC"
 		multiple="true"
 		layout="joomla.form.field.subform.repeatable"
-		formsource="administrator/components/com_workflow/forms/condition_group.xml"
+		formsource="administrator/components/com_workflow/forms/condition_leaf_simple.xml"
 		min="0"
 	/>
 
 	<field
-		name="condition_match"
-		type="list"
-		label="COM_WORKFLOW_AUTOMATION_CONDITION_MATCH_LABEL"
-		description="COM_WORKFLOW_AUTOMATION_CONDITION_MATCH_DESC"
-		validate="options"
-		default="all"
-	>
-		<option value="all">COM_WORKFLOW_AUTOMATION_MATCH_ALL</option>
-		<option value="any">COM_WORKFLOW_AUTOMATION_MATCH_ANY</option>
-	</field>
-
-	<field
-		name="condition"
+		name="groups"
 		type="subform"
-		label="COM_WORKFLOW_AUTOMATION_CONDITION_LABEL"
-		description="COM_WORKFLOW_AUTOMATION_CONDITION_DESC"
+		label="COM_WORKFLOW_AUTOMATION_TREE_GROUPS_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_TREE_GROUPS_DESC"
 		multiple="true"
 		layout="joomla.form.field.subform.repeatable"
-		formsource="administrator/components/com_workflow/forms/condition_group.xml"
+		formsource="administrator/components/com_workflow/forms/condition_group_l1.xml"
 		min="0"
 	/>
 </form>
