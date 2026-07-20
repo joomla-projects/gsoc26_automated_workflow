@@ -124,12 +124,32 @@ class TransitionModel extends AdminModel
         if (!empty($item->id)) {
             $db                        = $this->getDatabase();
             $transitionAutomationQuery = $db->getQuery(true)
-                ->select('*')
-                ->from($db->quoteName('#__workflow_transition_automation'))
+                ->select($db->quoteName([
+                    'id',
+                    'published',
+                    'ordering',
+                    'rule_type',
+                    'interval_value',
+                    'interval_unit',
+                    'cron_expression',
+                    'run_as_user_id',
+                    'item_filter',
+                    'fire_condition',
+                ]))->from($db->quoteName('#__workflow_transition_automation'))
                 ->where($db->quoteName('transition_id') . ' = :id')
+                ->order($db->quoteName('ordering') . ' ASC')
                 ->bind(':id', $item->id, ParameterType::INTEGER);
 
-            $item->automation = $db->setQuery($transitionAutomationQuery)->loadAssoc() ?: [];
+            $rules = $db->setQuery($transitionAutomationQuery)->loadAssocList() ?: [];
+
+            foreach ($rules as &$rule) {
+                [$rule['filter_match'], $rule['filter']]       = $this->parseExpressionJson($rule['item_filter'] ?? null);
+                [$rule['condition_match'], $rule['condition']] = $this->parseExpressionJson($rule['fire_condition'] ?? null);
+            }
+
+            unset($rule);
+
+            $item->automation = ['rules' => $rules];
         }
 
         return $item;
@@ -146,10 +166,11 @@ class TransitionModel extends AdminModel
      */
     public function save($data)
     {
-        $automationData = $data['automation'] ?? [];
+        // pull the rules out of the nested key
+        $automationRules = $data['automation']['rules'] ?? [];
         unset($data['automation']);
 
-        if (!$this->validateAutomation($automationData)) {
+        if (!$this->validateAutomation($automationRules)) {
             return false;
         }
 
@@ -205,7 +226,7 @@ class TransitionModel extends AdminModel
         }
 
         $pk = (int) $this->getState($this->getName() . '.id');
-        $this->saveAutomationRule($pk, $automationData);
+        $this->saveAutomationRules($pk, $automationRules);
 
         return true;
     }
@@ -360,13 +381,27 @@ class TransitionModel extends AdminModel
         parent::preprocessForm($form, $data, $group);
     }
 
-    private function saveAutomationRule(int $transitionId, array $data): void
+    /**
+     * Persists the automation rules for a transition, replacing any existing set.
+     *
+     * @param   integer  $transitionId  The transition id.
+     * @param   array    $rules         Submitted rule rows.
+     *
+     * @return  void
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function saveAutomationRules(int $transitionId, array $rules): void
     {
         $db   = $this->getDatabase();
         $user = Factory::getApplication()->getIdentity();
         $now  = Factory::getDate()->toSql();
 
-        if (empty($data) || empty((int) ($data['published'] ?? 0))) {
+        // Replace-all: clear this transition's rules, then re-insert the submitted, enabled ones.
+        // Wrapped in a transaction so a failure mid-save can't wipe the existing configuration.
+        try {
+            $db->transactionStart();
+
             $db->setQuery(
                 $db->getQuery(true)
                     ->delete($db->quoteName('#__workflow_transition_automation'))
@@ -374,66 +409,38 @@ class TransitionModel extends AdminModel
                     ->bind(':id', $transitionId, ParameterType::INTEGER)
             )->execute();
 
-            return;
-        }
+            foreach ($rules as $rule) {
+                // Skip rows the editor left disabled.
+                if (empty((int) ($rule['published'] ?? 0))) {
+                    continue;
+                }
 
-        $query = $db->getQuery(true)
-            ->select($db->quoteName('id'))
-            ->from($db->quoteName('#__workflow_transition_automation'))
-            ->where($db->quoteName('transition_id') . ' = :id')
-            ->bind(':id', $transitionId, ParameterType::INTEGER);
+                $ruleRow = (object) [
+                    'transition_id'   => $transitionId,
+                    'published'       => 1,
+                    'ordering'        => (int) ($rule['ordering'] ?? 0),
+                    'rule_type'       => $rule['rule_type'] ?? 'interval',
+                    'interval_value'  => (int) ($rule['interval_value'] ?? 0),
+                    'interval_unit'   => $rule['interval_unit'] ?? 'minutes',
+                    'cron_expression' => $rule['cron_expression'] ?? '',
+                    'run_as_user_id'  => (int) ($rule['run_as_user_id'] ?? 0),
+                    'loop_mode'       => 0,
+                    'item_filter'     => $this->buildExpressionJson($rule['filter_match'] ?? 'all', $rule['filter'] ?? []),
+                    'fire_condition'  => $this->buildExpressionJson($rule['condition_match'] ?? 'all', $rule['condition'] ?? []),
+                    'created'         => $now,
+                    'created_by'      => $user->id,
+                    'modified'        => $now,
+                    'modified_by'     => $user->id,
+                ];
 
-        $existingId = (int) $db->setQuery($query)->loadResult();
+                $db->insertObject('#__workflow_transition_automation', $ruleRow);
+            }
 
-        if ($existingId) {
-            $db->setQuery(
-                $db->getQuery(true)
-                    ->update($db->quoteName('#__workflow_transition_automation'))
-                    ->set($db->quoteName('rule_type') . ' = ' . $db->quote($data['rule_type'] ?? 'interval'))
-                    ->set($db->quoteName('interval_value') . ' = ' . (int) ($data['interval_value'] ?? 0))
-                    ->set($db->quoteName('interval_unit') . ' = ' . $db->quote($data['interval_unit'] ?? 'minutes'))
-                    ->set($db->quoteName('cron_expression') . ' = ' . $db->quote($data['cron_expression'] ?? ''))
-                    ->set($db->quoteName('run_as_user_id') . ' = ' . (int) ($data['run_as_user_id'] ?? 0))
-                    ->set($db->quoteName('loop_mode') . ' = ' . (int) ($data['loop_mode'] ?? 0))
-                    ->set($db->quoteName('published') . ' = 1')
-                    ->set($db->quoteName('modified') . ' = ' . $db->quote($now))
-                    ->set($db->quoteName('modified_by') . ' = ' . $user->id)
-                    ->where($db->quoteName('transition_id') . ' = :id')
-                    ->bind(':id', $transitionId, ParameterType::INTEGER)
-            )->execute();
-        } else {
-            $db->setQuery(
-                $db->getQuery(true)
-                    ->insert($db->quoteName('#__workflow_transition_automation'))
-                    ->columns($db->quoteName([
-                        'transition_id',
-                        'rule_type',
-                        'interval_value',
-                        'interval_unit',
-                        'cron_expression',
-                        'run_as_user_id',
-                        'loop_mode',
-                        'published',
-                        'created',
-                        'created_by',
-                        'modified',
-                        'modified_by',
-                    ]))
-                    ->values(implode(', ', [
-                        $transitionId,
-                        $db->quote($data['rule_type'] ?? 'interval'),
-                        (int) ($data['interval_value'] ?? 0),
-                        $db->quote($data['interval_unit'] ?? 'minutes'),
-                        $db->quote($data['cron_expression'] ?? ''),
-                        (int) ($data['run_as_user_id'] ?? 0),
-                        (int) ($data['loop_mode'] ?? 0),
-                        1,
-                        $db->quote($now),
-                        $user->id,
-                        $db->quote($now),
-                        $user->id,
-                    ]))
-            )->execute();
+            $db->transactionCommit();
+        } catch (\Throwable $error) {
+            $db->transactionRollback();
+
+            throw $error;
         }
     }
 
@@ -449,7 +456,7 @@ class TransitionModel extends AdminModel
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function validateAutomation(array $data): bool
+    private function validateAutomationRule(array $data): bool
     {
         // Nothing to validate when automation is disabled.
         if (empty((int) ($data['published'] ?? 0))) {
@@ -490,5 +497,217 @@ class TransitionModel extends AdminModel
         }
 
         return true;
+    }
+
+    private function validateAutomation(array $rules): bool
+    {
+        $app              = Factory::getApplication();
+        $missingRunAsUser = false;
+
+        foreach ($rules as $rule) {
+            if (empty((int) ($rule['published'] ?? 0))) {
+                continue;
+            }
+
+            if (!$this->validateAutomationRule($rule)) {
+                return false;
+            }
+
+            // Non-blocking: a rule with no run-as user can't execute
+            if ((int) ($rule['run_as_user_id'] ?? 0) === 0) {
+                $missingRunAsUser = true;
+            }
+        }
+
+        if ($missingRunAsUser) {
+            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_WARNING_NO_RUN_AS'), 'warning');
+        }
+
+        return true;
+    }
+
+    /**
+     * Maps a leaf field to the form input that carries its value.
+     *
+     * @var array<string, string>
+     * @since __DEPLOY_VERSION__
+     */
+    private const LEAF_VALUE_KEYS = [
+        'day_of_week'  => 'value_day_of_week',
+        'date'         => 'value_date',
+        'tag'          => 'value_tag',
+        'category'     => 'value_category',
+        'author_group' => 'value_author_group',
+    ];
+
+    /**
+     * Maps a leaf field to the form input that carries its operator.
+     *
+     * Operators are constrained per field (a tag list can't use a scalar comparison),
+     * so each field type gets its own showon-toggled operator input.
+     *
+     * @var array<string, string>
+     * @since __DEPLOY_VERSION__
+     */
+    private const LEAF_OPERATOR_KEYS = [
+        'day_of_week'  => 'operator_day_of_week',
+        'date'         => 'operator_date',
+        'tag'          => 'operator_tag',
+        'category'     => 'operator_category',
+        'author_group' => 'operator_author_group',
+    ];
+
+    /**
+     * Builds an expression-tree JSON string from a match mode and a flat list of leaf rows.
+     *
+     * @param string $match 'all' (AND) or 'any' (OR).
+     * @param array $leaves Submitted leaf rows (field/ operator / value).
+     *
+     * @return string|null JSON tree, or null when there are no usable leaves.
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function buildExpressionJson(string $match, array $groups): ?string
+    {
+        $groupNodes = [];
+
+        foreach ($groups as $group) {
+            $leafNodes = $this->buildLeafNodes($group['conditions'] ?? []);
+
+            // A group with no usable leaves is dropped.
+            if (empty($leafNodes)) {
+                continue;
+            }
+
+            $groupNodes[] = [
+                'op'       => ($group['group_match'] ?? 'all') === 'any' ? 'or' : 'and',
+                'children' => $leafNodes,
+            ];
+        }
+
+        if (empty($groupNodes)) {
+            return null;
+        }
+
+        return json_encode([
+            'op'       => $match === 'any' ? 'or' : 'and',
+            'children' => $groupNodes,
+        ]);
+    }
+
+    /**
+     * Turns submitted leaf rows into expression-tree leaf nodes.
+     *
+     * @param   array  $leaves  Submitted leaf rows.
+     *
+     * @return  array  Leaf nodes.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function buildLeafNodes(array $leaves): array
+    {
+        $leafNodes = [];
+
+        foreach ($leaves as $leaf) {
+            $field = trim((string) ($leaf['field'] ?? ''));
+
+            if ($field === '') {
+                continue;
+            }
+
+            // The operator lives in the input matching the selected field.
+            $operatorKey = self::LEAF_OPERATOR_KEYS[$field] ?? 'operator';
+            $operator    = trim((string) ($leaf[$operatorKey] ?? ''));
+
+            if ($operator === '') {
+                continue;
+            }
+
+            $valueKey = self::LEAF_VALUE_KEYS[$field] ?? 'value';
+            $value    = $leaf[$valueKey] ?? '';
+
+            if ($value === '' || $value === []) {
+                continue;
+            }
+
+            $leafNodes[] = [
+                'field'    => $field,
+                'operator' => $operator,
+                'value'    => $value,
+            ];
+        }
+
+        return $leafNodes;
+    }
+
+
+    /**
+     * Splits a stored expression-tree JSON back into a match mode and the group rows for the form.
+     *
+     * The builder renders two levels (an outer match over groups, each group holding leaves), so
+     * anything nested deeper is skipped rather than breaking the form.
+     *
+     * @param   string|null  $json  The stored JSON tree.
+     *
+     * @return  array  A [string $match, array $groups] pair.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function parseExpressionJson(?string $json): array
+    {
+        if (empty($json)) {
+            return ['all', []];
+        }
+
+        $tree = json_decode($json, true);
+
+        if (!\is_array($tree)) {
+            return ['all', []];
+        }
+
+        $match  = ($tree['op'] ?? 'and') === 'or' ? 'any' : 'all';
+        $groups = [];
+
+        foreach ($tree['children'] ?? [] as $groupNode) {
+            $leaves = [];
+
+            foreach ($groupNode['children'] ?? [] as $leafNode) {
+                // Skip anything deeper than two levels — the builder only shows leaves in a group.
+                if (!isset($leafNode['field'])) {
+                    continue;
+                }
+
+                $leaves[] = $this->parseLeaf($leafNode);
+            }
+
+            $groups[] = [
+                'group_match' => ($groupNode['op'] ?? 'and') === 'or' ? 'any' : 'all',
+                'conditions'  => $leaves,
+            ];
+        }
+
+        return [$match, $groups];
+    }
+
+    /**
+     * Turns a stored leaf node into a form leaf row (value written to the typed input for its field).
+     *
+     * @param   array  $leafNode  A stored leaf node.
+     *
+     * @return  array  A form leaf row.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function parseLeaf(array $leafNode): array
+    {
+        $field       = (string) ($leafNode['field'] ?? '');
+        $valueKey    = self::LEAF_VALUE_KEYS[$field] ?? 'value';
+        $operatorKey = self::LEAF_OPERATOR_KEYS[$field] ?? 'operator';
+
+        return [
+            'field'      => $field,
+            $operatorKey => $leafNode['operator'] ?? 'is',
+            $valueKey    => $leafNode['value'] ?? '',
+        ];
     }
 }
