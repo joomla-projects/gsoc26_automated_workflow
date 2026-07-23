@@ -39,8 +39,49 @@
 	</field>
 
 	<field
-		name="value"
-		type="text"
+		name="value_day_of_week"
+		type="list"
+		multiple="true"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_DESC"
+		validate="options"
+	>
+		<option value="0">SUNDAY</option>
+		<option value="1">MONDAY</option>
+		<option value="2">TUESDAY</option>
+		<option value="3">WEDNESDAY</option>
+		<option value="4">THURSDAY</option>
+		<option value="5">FRIDAY</option>
+		<option value="6">SATURDAY</option>
+	</field>
+
+	<field
+		name="value_date"
+		type="calendar"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_DESC"
+		format="%Y-%m-%d"
+	/>
+
+	<field
+		name="value_tag"
+		type="tag"
+		multiple="true"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_DESC"
+	/>
+
+	<field
+		name="value_category"
+		type="category"
+		extension="com_content"
+		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_DESC"
+	/>
+
+	<field
+		name="value_author_group"
+		type="usergrouplist"
 		label="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_LABEL"
 		description="COM_WORKFLOW_AUTOMATION_LEAF_VALUE_DESC"
 	/>

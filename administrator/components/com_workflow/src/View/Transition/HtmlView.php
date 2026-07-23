@@ -145,6 +145,9 @@ class HtmlView extends BaseHtmlView
         // Set the toolbar
         $this->addToolbar();
 
+        // Constrain condition operators per selected field (replaces showon at depth).
+        $this->getDocument()->getWebAssetManager()->useScript('com_workflow.condition-operators');
+
         // Display the template
         parent::display($tpl);
     }
