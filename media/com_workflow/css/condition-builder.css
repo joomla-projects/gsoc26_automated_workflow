@@ -1,0 +1,113 @@
+.condition-builder .cb-ui {
+  margin-top: 0.5rem;
+}
+
+.cb-group {
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.cb-group .cb-group {
+  border-left: 3px solid #2a7de1;
+}
+
+.cb-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.cb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 2px solid rgba(128, 128, 128, 0.25);
+}
+
+.cb-leaf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.cb-leaf-fields {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.cb-leaf-fields .form-select,
+.cb-leaf-fields .form-control,
+.cb-leaf-fields joomla-field-fancy-select {
+  width: auto;
+  min-width: 130px;
+  flex: 1;
+}
+
+.cb-match {
+  width: auto;
+  min-width: 140px;
+}
+
+.cb-chip {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.cb-chip-check {
+  background: rgba(42, 125, 225, 0.16);
+  color: #2a7de1;
+}
+
+.cb-chip-group {
+  background: rgba(120, 90, 220, 0.18);
+  color: #7a5adc;
+}
+
+.cb-band {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: rgba(128, 128, 128, 0.9);
+  padding: 1px 0;
+}
+
+.cb-negate {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  margin: 0;
+}
+
+.cb-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.cb-empty {
+  font-size: 13px;
+  color: rgba(128, 128, 128, 0.9);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.cb-remove {
+  margin-left: auto;
+  line-height: 1;
+}
