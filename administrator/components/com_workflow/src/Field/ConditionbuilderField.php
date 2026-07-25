@@ -10,13 +10,6 @@
 
 namespace Joomla\Component\Workflow\Administrator\Field;
 
-use Joomla\CMS\Factory;
-use Joomla\CMS\Form\FormField;
-use Joomla\CMS\Helper\UserGroupsHelper;
-use Joomla\CMS\HTML\HTMLHelper;
-use Joomla\CMS\Language\Text;
-use Joomla\Database\DatabaseInterface;
-
 // phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;
 // phpcs:enable PSR1.Files.SideEffects
@@ -78,9 +71,9 @@ class ConditionbuilderField extends FormField
         }
 
         $configuration = json_encode([
-            'fields'       => $this->getFieldChoices(),
-            'operators'    => $this->getOperatorChoices(),
-            'valueTypes'   => [
+            'fields'     => $this->getFieldChoices(),
+            'operators'  => $this->getOperatorChoices(),
+            'valueTypes' => [
                 'day_of_week'  => 'multiselect',
                 'date'         => 'date',
                 'tag'          => 'multiselect',
@@ -255,16 +248,16 @@ class ConditionbuilderField extends FormField
     private function getInterfaceText(): array
     {
         return [
-            'addCheck' => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_CHECK'),
-            'addGroup' => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_GROUP'),
-            'remove'   => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_REMOVE'),
-            'check'    => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_CHECK'),
-            'group'    => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_GROUP'),
-            'negate'   => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_NEGATE'),
-            'match'    => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_MATCH'),
-            'matchAll' => Text::_('COM_WORKFLOW_AUTOMATION_MATCH_ALL'),
-            'matchAny' => Text::_('COM_WORKFLOW_AUTOMATION_MATCH_ANY'),
-            'empty'    => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY'),
+            'addCheck'    => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_CHECK'),
+            'addGroup'    => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_GROUP'),
+            'remove'      => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_REMOVE'),
+            'check'       => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_CHECK'),
+            'group'       => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_GROUP'),
+            'negate'      => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_NEGATE'),
+            'match'       => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_MATCH'),
+            'matchAll'    => Text::_('COM_WORKFLOW_AUTOMATION_MATCH_ALL'),
+            'matchAny'    => Text::_('COM_WORKFLOW_AUTOMATION_MATCH_ANY'),
+            'empty'       => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY'),
             'placeholder' => Text::_('JGLOBAL_TYPE_OR_SELECT_SOME_OPTIONS'),
         ];
     }
