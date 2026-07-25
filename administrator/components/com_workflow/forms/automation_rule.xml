@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<form>
+<form addfieldprefix="Joomla\Component\Workflow\Administrator\Field">
 	<config>
-		<inlinehelp button="show"/>
+		<inlinehelp button="show" />
 	</config>
 	<field
 		name="published"
@@ -76,36 +76,9 @@
 	/>
 
 	<field
-		name="condition_match"
-		type="list"
-		label="COM_WORKFLOW_AUTOMATION_TREE_MATCH_LABEL"
-		description="COM_WORKFLOW_AUTOMATION_TREE_MATCH_DESC"
-		validate="options"
-		default="all"
-	>
-		<option value="all">COM_WORKFLOW_AUTOMATION_MATCH_ALL</option>
-		<option value="any">COM_WORKFLOW_AUTOMATION_MATCH_ANY</option>
-	</field>
-
-	<field
-		name="conditions"
-		type="subform"
-		label="COM_WORKFLOW_AUTOMATION_TREE_CONDITIONS_LABEL"
-		description="COM_WORKFLOW_AUTOMATION_TREE_CONDITIONS_DESC"
-		multiple="true"
-		layout="joomla.form.field.subform.repeatable"
-		formsource="administrator/components/com_workflow/forms/condition_leaf_simple.xml"
-		min="0"
-	/>
-
-	<field
-		name="groups"
-		type="subform"
-		label="COM_WORKFLOW_AUTOMATION_TREE_GROUPS_LABEL"
-		description="COM_WORKFLOW_AUTOMATION_TREE_GROUPS_DESC"
-		multiple="true"
-		layout="joomla.form.field.subform.repeatable"
-		formsource="administrator/components/com_workflow/forms/condition_group_l1.xml"
-		min="0"
+		name="condition"
+		type="conditionbuilder"
+		label="COM_WORKFLOW_AUTOMATION_TREE_LABEL"
+		description="COM_WORKFLOW_AUTOMATION_TREE_DESC"
 	/>
 </form>

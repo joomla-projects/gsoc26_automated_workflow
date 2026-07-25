@@ -143,13 +143,16 @@ class TransitionModel extends AdminModel
             $rules = $db->setQuery($transitionAutomationQuery)->loadAssocList() ?: [];
 
             foreach ($rules as &$rule) {
-                [$rule['filter_match'], $rule['filter']]       = $this->parseExpressionJson($rule['item_filter'] ?? null);
-                [$rule['condition_match'], $rule['condition']] = $this->parseExpressionJson($rule['fire_condition'] ?? null);
+                // The condition builder stores the whole expression tree as JSON in item_filter.
+                $rule['condition'] = $rule['item_filter'] ?? '';
             }
 
             unset($rule);
 
-            $item->automation = ['rules' => $rules];
+            $item->automation = [
+                'automation_enabled' => empty($rules) ? 0 : 1,
+                'rules'              => $rules,
+            ];
         }
 
         return $item;
@@ -166,8 +169,11 @@ class TransitionModel extends AdminModel
      */
     public function save($data)
     {
-        // pull the rules out of the nested key
-        $automationRules = $data['automation']['rules'] ?? [];
+        // Pull automation data out. The transition-level toggle decides whether rules are kept:
+        // when it is off, no rules are saved (an empty set clears any existing ones).
+        $automationData    = $data['automation'] ?? [];
+        $automationEnabled = !empty($automationData['automation_enabled']);
+        $automationRules   = $automationEnabled ? ($automationData['rules'] ?? []) : [];
         unset($data['automation']);
 
         if (!$this->validateAutomation($automationRules)) {
@@ -425,8 +431,8 @@ class TransitionModel extends AdminModel
                     'cron_expression' => $rule['cron_expression'] ?? '',
                     'run_as_user_id'  => (int) ($rule['run_as_user_id'] ?? 0),
                     'loop_mode'       => 0,
-                    'item_filter'     => $this->buildExpressionJson($rule['filter_match'] ?? 'all', $rule['filter'] ?? []),
-                    'fire_condition'  => $this->buildExpressionJson($rule['condition_match'] ?? 'all', $rule['condition'] ?? []),
+                    'item_filter'     => ($rule['condition'] ?? '') !== '' ? $rule['condition'] : null,
+                    'fire_condition'  => null,
                     'created'         => $now,
                     'created_by'      => $user->id,
                     'modified'        => $now,
@@ -524,190 +530,5 @@ class TransitionModel extends AdminModel
         }
 
         return true;
-    }
-
-    /**
-     * Maps a leaf field to the form input that carries its value.
-     *
-     * @var array<string, string>
-     * @since __DEPLOY_VERSION__
-     */
-    private const LEAF_VALUE_KEYS = [
-        'day_of_week'  => 'value_day_of_week',
-        'date'         => 'value_date',
-        'tag'          => 'value_tag',
-        'category'     => 'value_category',
-        'author_group' => 'value_author_group',
-    ];
-
-    /**
-     * Maps a leaf field to the form input that carries its operator.
-     *
-     * Operators are constrained per field (a tag list can't use a scalar comparison),
-     * so each field type gets its own showon-toggled operator input.
-     *
-     * @var array<string, string>
-     * @since __DEPLOY_VERSION__
-     */
-    private const LEAF_OPERATOR_KEYS = [
-        'day_of_week'  => 'operator_day_of_week',
-        'date'         => 'operator_date',
-        'tag'          => 'operator_tag',
-        'category'     => 'operator_category',
-        'author_group' => 'operator_author_group',
-    ];
-
-    /**
-     * Builds an expression-tree JSON string from a match mode and a flat list of leaf rows.
-     *
-     * @param string $match 'all' (AND) or 'any' (OR).
-     * @param array $leaves Submitted leaf rows (field/ operator / value).
-     *
-     * @return string|null JSON tree, or null when there are no usable leaves.
-     *
-     * @since __DEPLOY_VERSION__
-     */
-    private function buildExpressionJson(string $match, array $groups): ?string
-    {
-        $groupNodes = [];
-
-        foreach ($groups as $group) {
-            $leafNodes = $this->buildLeafNodes($group['conditions'] ?? []);
-
-            // A group with no usable leaves is dropped.
-            if (empty($leafNodes)) {
-                continue;
-            }
-
-            $groupNodes[] = [
-                'op'       => ($group['group_match'] ?? 'all') === 'any' ? 'or' : 'and',
-                'children' => $leafNodes,
-            ];
-        }
-
-        if (empty($groupNodes)) {
-            return null;
-        }
-
-        return json_encode([
-            'op'       => $match === 'any' ? 'or' : 'and',
-            'children' => $groupNodes,
-        ]);
-    }
-
-    /**
-     * Turns submitted leaf rows into expression-tree leaf nodes.
-     *
-     * @param   array  $leaves  Submitted leaf rows.
-     *
-     * @return  array  Leaf nodes.
-     *
-     * @since   __DEPLOY_VERSION__
-     */
-    private function buildLeafNodes(array $leaves): array
-    {
-        $leafNodes = [];
-
-        foreach ($leaves as $leaf) {
-            $field = trim((string) ($leaf['field'] ?? ''));
-
-            if ($field === '') {
-                continue;
-            }
-
-            // The operator lives in the input matching the selected field.
-            $operatorKey = self::LEAF_OPERATOR_KEYS[$field] ?? 'operator';
-            $operator    = trim((string) ($leaf[$operatorKey] ?? ''));
-
-            if ($operator === '') {
-                continue;
-            }
-
-            $valueKey = self::LEAF_VALUE_KEYS[$field] ?? 'value';
-            $value    = $leaf[$valueKey] ?? '';
-
-            if ($value === '' || $value === []) {
-                continue;
-            }
-
-            $leafNodes[] = [
-                'field'    => $field,
-                'operator' => $operator,
-                'value'    => $value,
-            ];
-        }
-
-        return $leafNodes;
-    }
-
-
-    /**
-     * Splits a stored expression-tree JSON back into a match mode and the group rows for the form.
-     *
-     * The builder renders two levels (an outer match over groups, each group holding leaves), so
-     * anything nested deeper is skipped rather than breaking the form.
-     *
-     * @param   string|null  $json  The stored JSON tree.
-     *
-     * @return  array  A [string $match, array $groups] pair.
-     *
-     * @since   __DEPLOY_VERSION__
-     */
-    private function parseExpressionJson(?string $json): array
-    {
-        if (empty($json)) {
-            return ['all', []];
-        }
-
-        $tree = json_decode($json, true);
-
-        if (!\is_array($tree)) {
-            return ['all', []];
-        }
-
-        $match  = ($tree['op'] ?? 'and') === 'or' ? 'any' : 'all';
-        $groups = [];
-
-        foreach ($tree['children'] ?? [] as $groupNode) {
-            $leaves = [];
-
-            foreach ($groupNode['children'] ?? [] as $leafNode) {
-                // Skip anything deeper than two levels — the builder only shows leaves in a group.
-                if (!isset($leafNode['field'])) {
-                    continue;
-                }
-
-                $leaves[] = $this->parseLeaf($leafNode);
-            }
-
-            $groups[] = [
-                'group_match' => ($groupNode['op'] ?? 'and') === 'or' ? 'any' : 'all',
-                'conditions'  => $leaves,
-            ];
-        }
-
-        return [$match, $groups];
-    }
-
-    /**
-     * Turns a stored leaf node into a form leaf row (value written to the typed input for its field).
-     *
-     * @param   array  $leafNode  A stored leaf node.
-     *
-     * @return  array  A form leaf row.
-     *
-     * @since   __DEPLOY_VERSION__
-     */
-    private function parseLeaf(array $leafNode): array
-    {
-        $field       = (string) ($leafNode['field'] ?? '');
-        $valueKey    = self::LEAF_VALUE_KEYS[$field] ?? 'value';
-        $operatorKey = self::LEAF_OPERATOR_KEYS[$field] ?? 'operator';
-
-        return [
-            'field'      => $field,
-            $operatorKey => $leafNode['operator'] ?? 'is',
-            $valueKey    => $leafNode['value'] ?? '',
-        ];
     }
 }
