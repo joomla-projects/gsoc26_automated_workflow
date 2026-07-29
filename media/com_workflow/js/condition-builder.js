@@ -25,7 +25,8 @@
         } catch (error) {
           node.setAttribute(key, value);
         }
-      }    });
+      }
+    });
     children.flat().forEach((child) => {
       if (child === null || child === undefined || child === false) return;
       node.appendChild(
@@ -93,33 +94,49 @@
 
     nodeToJson(node) {
       if (node.type === "leaf") {
+        // Drop incomplete checks so they never serialise to a silently-false condition.
+        const emptyValue =
+          node.value === "" ||
+          node.value === null ||
+          (Array.isArray(node.value) && node.value.length === 0);
+
+        if (!node.field || emptyValue) {
+          return null;
+        }
+
         return {
           field: node.field,
           operator: node.operator,
           value: node.value,
         };
       }
-      const base = {
-        op: MATCH_TO_OP[node.match] || "and",
-        children: node.children.map((child) => this.nodeToJson(child)),
-      };
+
+      // Prune empty groups: an empty "or" serialises to false and would silently kill the rule.
+      const children = node.children
+        .map((child) => this.nodeToJson(child))
+        .filter((child) => child !== null);
+
+      if (children.length === 0) {
+        return null;
+      }
+
+      const base = { op: MATCH_TO_OP[node.match] || "and", children };
       return node.negate ? { op: "not", children: [base] } : base;
     }
 
     sync() {
-      this.input.value = this.tree.children.length
-        ? JSON.stringify(this.nodeToJson(this.tree))
-        : "";
+      const serialised = this.nodeToJson(this.tree);
+      this.input.value = serialised ? JSON.stringify(serialised) : "";
     }
 
     // ----- node factories -----
 
     emptyGroup() {
-      return { type: "group", match: "all", negate: false, children: [] };
+      return { type: "group", match: "", negate: false, children: [] };
     }
 
     emptyLeaf() {
-      const firstField = (this.config.fields[0] || {}).value || "";
+      const firstField = ((this.config.fields || [])[0] || {}).value || "";
       return {
         type: "leaf",
         field: firstField,
@@ -181,6 +198,12 @@
         event.target.closest("[data-path]").getAttribute("data-path"),
       );
 
+      if (role === "match") {
+        node.match = event.target.value;
+        this.render();
+        return;
+      }
+
       if (role === "field") {
         node.field = event.target.value;
         node.operator = this.firstOperator(node.field);
@@ -214,33 +237,41 @@
 
     renderGroup(node, path, isRoot) {
       const text = this.config.text;
+      const parts = [];
 
-      const head = el(
-        "div",
-        { class: "cb-group-head" },
-        el("span", { class: "cb-chip cb-chip-group", text: text.group }),
-        this.renderMatch(node),
-        isRoot ? null : this.renderNegate(node),
-        isRoot
-          ? null
-          : el("button", {
+      if (!isRoot) {
+        // A real group (expression) keeps its chrome: label, match (only with 2+ items),
+        // negate, and a remove button.
+        parts.push(
+          el(
+            "div",
+            { class: "cb-group-head" },
+            el("span", { class: "cb-chip cb-chip-group", text: text.group }),
+            node.children.length >= 2 ? this.renderMatch(node) : null,
+            this.renderNegate(node),
+            el("button", {
               type: "button",
               class: "btn btn-sm btn-danger cb-remove",
               "data-action": "remove",
               "aria-label": text.remove,
               text: "\u00d7",
             }),
-      );
+          ),
+        );
+      } else if (node.children.length >= 2) {
+        // The root has no group chrome; it only shows the match selector once it has 2+ items.
+        parts.push(
+          el("div", { class: "cb-root-head" }, this.renderMatch(node)),
+        );
+      }
 
-      const list = el("div", { class: "cb-list" });
+      const list = el("div", {
+        class: isRoot ? "cb-list cb-list-root" : "cb-list",
+      });
       node.children.forEach((child, index) => {
         if (index > 0) {
           list.appendChild(
-            el(
-              "div",
-              { class: "cb-band" },
-              node.match === "any" ? "OR" : "AND",
-            ),
+            el("div", { class: "cb-band" }, this.bandLabel(node)),
           );
         }
         const childPath = path === "" ? String(index) : path + "." + index;
@@ -250,40 +281,52 @@
             : this.renderGroup(child, childPath, false),
         );
       });
-      if (node.children.length === 0) {
-        list.appendChild(el("div", { class: "cb-empty", text: text.empty }));
-      }
+            if (node.children.length === 0) {
+              list.appendChild(
+                el("div", {
+                  class: "cb-empty",
+                  text: isRoot ? text.empty : text.emptyGroup,
+                }),
+              );
+            }
+      parts.push(list);
 
-      const footer = el(
-        "div",
-        { class: "cb-add" },
+      parts.push(
         el(
-          "button",
-          {
-            type: "button",
-            class: "btn btn-sm btn-success",
-            "data-action": "add-check",
-          },
-          "+ " + text.addCheck,
-        ),
-        el(
-          "button",
-          {
-            type: "button",
-            class: "btn btn-sm btn-success",
-            "data-action": "add-group",
-          },
-          "+ " + text.addGroup,
+          "div",
+          { class: "cb-add" },
+          el(
+            "button",
+            {
+              type: "button",
+              class: "btn btn-sm btn-success",
+              "data-action": "add-check",
+            },
+            "+ " + text.addCheck,
+          ),
+          el(
+            "button",
+            {
+              type: "button",
+              class: "btn btn-sm btn-success",
+              "data-action": "add-group",
+            },
+            "+ " + text.addGroup,
+          ),
         ),
       );
 
       return el(
         "div",
-        { class: isRoot ? "cb-group cb-root" : "cb-group", "data-path": path },
-        head,
-        list,
-        footer,
+        { class: isRoot ? "cb-root" : "cb-group", "data-path": path },
+        ...parts,
       );
+    }
+
+    bandLabel(node) {
+      if (node.match === "all") return "AND";
+      if (node.match === "any") return "OR";
+      return "?";
     }
 
     renderLeaf(node, path) {
@@ -393,6 +436,14 @@
         class: "form-select cb-match",
         "data-role": "match",
       });
+
+      if (!node.match) {
+        const placeholder = el("option", { value: "", text: text.matchChoose });
+        placeholder.selected = true;
+        placeholder.disabled = true;
+        select.appendChild(placeholder);
+      }
+
       [
         ["all", text.matchAll],
         ["any", text.matchAny],
@@ -401,6 +452,7 @@
         if (value === node.match) option.selected = true;
         select.appendChild(option);
       });
+
       return select;
     }
 

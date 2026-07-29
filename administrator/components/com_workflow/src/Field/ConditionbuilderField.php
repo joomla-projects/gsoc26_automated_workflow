@@ -14,8 +14,6 @@ namespace Joomla\Component\Workflow\Administrator\Field;
 \defined('_JEXEC') or die;
 // phpcs:enable PSR1.Files.SideEffects
 
-namespace Joomla\Component\Workflow\Administrator\Field;
-
 use Joomla\CMS\Factory;
 use Joomla\CMS\Form\FormField;
 use Joomla\CMS\Helper\UserGroupsHelper;
@@ -24,16 +22,17 @@ use Joomla\CMS\Language\Text;
 use Joomla\Database\DatabaseInterface;
 
 /**
- * Renders the automation condition builder.
+ * Renders one automation condition builder.
  *
- * The field itself stores a single JSON expression tree. All of the interface is
- * built client side, so this class only outputs the hidden input that carries the
- * value plus a configuration blob describing the fields, operators and value
- * choices the builder may offer.
+ * A single instance drives either the filter or the condition, chosen by the
+ * field's `mode` attribute: `filter` exposes item properties (tag, category,
+ * author group), `condition` exposes moment properties (day of week, date). The
+ * whole interface is built client side, so this class only outputs a hidden
+ * input carrying the stored JSON expression tree plus a configuration blob
+ * describing the fields, operators and value choices the builder may offer.
  *
- * @since __DEPLOY_VERSION__
+ * @since  __DEPLOY_VERSION__
  */
-
 class ConditionbuilderField extends FormField
 {
     /**
@@ -45,7 +44,8 @@ class ConditionbuilderField extends FormField
     protected $type = 'Conditionbuilder';
 
     /**
-     * Builds the field markup.
+     * Builds the field markup: a hidden input for the JSON value, plus a config
+     * blob (scoped to this field's mode) that the client-side builder reads.
      *
      * @return  string
      *
@@ -71,15 +71,9 @@ class ConditionbuilderField extends FormField
         }
 
         $configuration = json_encode([
-            'fields'     => $this->getFieldChoices(),
-            'operators'  => $this->getOperatorChoices(),
-            'valueTypes' => [
-                'day_of_week'  => 'multiselect',
-                'date'         => 'date',
-                'tag'          => 'multiselect',
-                'category'     => 'select',
-                'author_group' => 'select',
-            ],
+            'fields'       => $this->getFieldChoices(),
+            'operators'    => $this->getOperatorChoices(),
+            'valueTypes'   => $this->getValueTypes(),
             'valueOptions' => $this->getValueChoices(),
             'text'         => $this->getInterfaceText(),
         ]);
@@ -91,8 +85,21 @@ class ConditionbuilderField extends FormField
             . '</div>';
     }
 
+    private function getValueTypes(): array
+    {
+        $all = [
+            'day_of_week'  => 'multiselect',
+            'date'         => 'date',
+            'tag'          => 'multiselect',
+            'category'     => 'select',
+            'author_group' => 'select',
+        ];
+
+        return array_intersect_key($all, array_flip($this->allowedFields()));
+    }
+
     /**
-     * The properties a condition may be built on.
+     * The properties conditions or filters may be built on.
      *
      * @return  array<int, array<string, string>>
      *
@@ -100,13 +107,21 @@ class ConditionbuilderField extends FormField
      */
     private function getFieldChoices(): array
     {
-        return [
-            ['value' => 'day_of_week',  'label' => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_DAY_OF_WEEK')],
-            ['value' => 'date',         'label' => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_DATE')],
-            ['value' => 'tag',          'label' => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_TAG')],
-            ['value' => 'category',     'label' => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_CATEGORY')],
-            ['value' => 'author_group', 'label' => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_AUTHOR_GROUP')],
+        $labels = [
+            'day_of_week'  => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_DAY_OF_WEEK'),
+            'date'         => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_DATE'),
+            'tag'          => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_TAG'),
+            'category'     => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_CATEGORY'),
+            'author_group' => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_AUTHOR_GROUP'),
         ];
+
+        $choices = [];
+
+        foreach ($this->allowedFields() as $field) {
+            $choices[] = ['value' => $field, 'label' => $labels[$field]];
+        }
+
+        return $choices;
     }
 
     /**
@@ -140,9 +155,14 @@ class ConditionbuilderField extends FormField
             'author_group' => ['has', 'not has'],
         ];
 
+        $allowed = $this->allowedFields();
         $choices = [];
 
         foreach ($operatorsByField as $fieldName => $operators) {
+            if (!\in_array($fieldName, $allowed, true)) {
+                continue;
+            }
+
             foreach ($operators as $operator) {
                 $choices[$fieldName][] = ['value' => $operator, 'label' => $operatorLabels[$operator]];
             }
@@ -161,15 +181,28 @@ class ConditionbuilderField extends FormField
      */
     private function getValueChoices(): array
     {
-        return [
-            'day_of_week'  => $this->getWeekdayChoices(),
-            'tag'          => $this->getTagChoices(),
-            'category'     => $this->getCategoryChoices(),
-            'author_group' => $this->getUserGroupChoices(),
-        ];
+        $allowed = $this->allowedFields();
+        $choices = [];
+
+        if (\in_array('day_of_week', $allowed, true)) {
+            $choices['day_of_week'] = $this->getWeekdayChoices();
+        }
+        if (\in_array('tag', $allowed, true)) {
+            $choices['tag'] = $this->getTagChoices();
+        }
+        if (\in_array('category', $allowed, true)) {
+            $choices['category'] = $this->getCategoryChoices();
+        }
+        if (\in_array('author_group', $allowed, true)) {
+            $choices['author_group'] = $this->getUserGroupChoices();
+        }
+
+        return $choices;
     }
 
     /**
+     * Weekday options, Sunday (0) through Saturday (6).
+     *
      * @return  array<int, array<string, string>>
      * @since   __DEPLOY_VERSION__
      */
@@ -186,6 +219,8 @@ class ConditionbuilderField extends FormField
     }
 
     /**
+     * Published content tags.
+     *
      * @return  array<int, array<string, string>>
      * @since   __DEPLOY_VERSION__
      */
@@ -209,6 +244,8 @@ class ConditionbuilderField extends FormField
     }
 
     /**
+     * com_content category options.
+     *
      * @return  array<int, array<string, string>>
      * @since   __DEPLOY_VERSION__
      */
@@ -224,6 +261,8 @@ class ConditionbuilderField extends FormField
     }
 
     /**
+     * All user groups.
+     *
      * @return  array<int, array<string, string>>
      * @since   __DEPLOY_VERSION__
      */
@@ -247,6 +286,9 @@ class ConditionbuilderField extends FormField
      */
     private function getInterfaceText(): array
     {
+        $emptyKey = (string) $this->element['mode'] === 'filter'
+            ? 'COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_FILTER'
+            : 'COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_CONDITION';
         return [
             'addCheck'    => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_CHECK'),
             'addGroup'    => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_GROUP'),
@@ -257,8 +299,32 @@ class ConditionbuilderField extends FormField
             'match'       => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_MATCH'),
             'matchAll'    => Text::_('COM_WORKFLOW_AUTOMATION_MATCH_ALL'),
             'matchAny'    => Text::_('COM_WORKFLOW_AUTOMATION_MATCH_ANY'),
-            'empty'       => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY'),
+            'empty'       => Text::_($emptyKey),
             'placeholder' => Text::_('JGLOBAL_TYPE_OR_SELECT_SOME_OPTIONS'),
+            'matchChoose' => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_MATCH_CHOOSE'),
+            'emptyGroup'  => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_GROUP'),
         ];
+    }
+
+    /**
+     * The fields this builder instance may offer, based on the field's mode.
+     * Filter mode exposes item properties; condition mode exposes moment properties.
+     *
+     * @return string[]
+     * @since __DEPLOY_VERSION__
+     */
+    private function allowedFields(): array
+    {
+        $mode = (string) $this->element['mode'];
+
+        if ($mode === 'filter') {
+            return ['tag', 'category', 'author_group'];
+        }
+
+        if ($mode === 'condition') {
+            return ['day_of_week', 'date'];
+        }
+
+        return ['day_of_week', 'date', 'tag', 'category', 'author_group'];
     }
 }

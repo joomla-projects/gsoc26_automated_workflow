@@ -28,8 +28,8 @@ final class DueAutomation
     public int $transition_id;
     public int $from_stage_id;
     public int $to_stage_id;
-    public ?int $interval_value;
-    public ?string $interval_unit;
+    public ?int $delay_value;
+    public ?string $delay_unit;
     public string $rule_type;
     public ?string $cron_expression;
     public ?string $item_filter;
@@ -58,8 +58,8 @@ final class DueAutomation
         $candidate->transition_id   = (int) $row->transition_id;
         $candidate->from_stage_id   = (int) $row->from_stage_id;
         $candidate->to_stage_id     = (int) $row->to_stage_id;
-        $candidate->interval_value  = $row->interval_value !== null ? (int) $row->interval_value : null;
-        $candidate->interval_unit   = $row->interval_unit;
+        $candidate->delay_value     = $row->delay_value !== null ? (int) $row->delay_value : null;
+        $candidate->delay_unit      = $row->delay_unit;
         $candidate->rule_type       = (string) $row->rule_type;
         $candidate->cron_expression = $row->cron_expression;
         $candidate->item_filter     = $row->item_filter;

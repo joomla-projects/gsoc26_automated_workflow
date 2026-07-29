@@ -122,37 +122,33 @@ class TransitionModel extends AdminModel
         }
 
         if (!empty($item->id)) {
-            $db                        = $this->getDatabase();
-            $transitionAutomationQuery = $db->getQuery(true)
+            $db    = $this->getDatabase();
+            $query = $db->getQuery(true)
                 ->select($db->quoteName([
-                    'id',
-                    'published',
-                    'ordering',
                     'rule_type',
-                    'interval_value',
-                    'interval_unit',
+                    'delay_value',
+                    'delay_unit',
                     'cron_expression',
                     'run_as_user_id',
                     'item_filter',
                     'fire_condition',
-                ]))->from($db->quoteName('#__workflow_transition_automation'))
+                ]))
+                ->from($db->quoteName('#__workflow_transition_automation'))
                 ->where($db->quoteName('transition_id') . ' = :id')
-                ->order($db->quoteName('ordering') . ' ASC')
-                ->bind(':id', $item->id, ParameterType::INTEGER);
+                ->bind(':id', $item->id, ParameterType::INTEGER)
+                ->setLimit(1);
 
-            $rules = $db->setQuery($transitionAutomationQuery)->loadAssocList() ?: [];
+            $rule = $db->setQuery($query)->loadAssoc();
 
-            foreach ($rules as &$rule) {
-                // The condition builder stores the whole expression tree as JSON in item_filter.
-                $rule['condition'] = $rule['item_filter'] ?? '';
+            if ($rule) {
+                $item->automation = [
+                    'automation_enabled' => 1,
+                    'run_as_user_id'     => (int) ($rule['run_as_user_id'] ?? 0),
+                    'automation_rules'   => $rule,
+                ];
+            } else {
+                $item->automation = ['automation_enabled' => 0, 'run_as_user_id' => 0, 'automation_rules' => []];
             }
-
-            unset($rule);
-
-            $item->automation = [
-                'automation_enabled' => empty($rules) ? 0 : 1,
-                'rules'              => $rules,
-            ];
         }
 
         return $item;
@@ -169,14 +165,18 @@ class TransitionModel extends AdminModel
      */
     public function save($data)
     {
-        // Pull automation data out. The transition-level toggle decides whether rules are kept:
-        // when it is off, no rules are saved (an empty set clears any existing ones).
+        // Pull automation data out. The transition-level toggle decides whether a rule is kept:
+        // when it is off, an empty rule clears any existing one.
         $automationData    = $data['automation'] ?? [];
         $automationEnabled = !empty($automationData['automation_enabled']);
-        $automationRules   = $automationEnabled ? ($automationData['rules'] ?? []) : [];
+        $automationRule    = $automationEnabled ? ($automationData['automation_rules'] ?? []) : [];
         unset($data['automation']);
 
-        if (!$this->validateAutomation($automationRules)) {
+        if (!empty($automationRule)) {
+            $automationRule['run_as_user_id'] = (int) ($automationData['run_as_user_id'] ?? 0);
+        }
+
+        if (!$this->validateAutomation($automationRule)) {
             return false;
         }
 
@@ -232,7 +232,7 @@ class TransitionModel extends AdminModel
         }
 
         $pk = (int) $this->getState($this->getName() . '.id');
-        $this->saveAutomationRules($pk, $automationRules);
+        $this->saveAutomationRule($pk, $automationRule);
 
         return true;
     }
@@ -397,13 +397,13 @@ class TransitionModel extends AdminModel
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function saveAutomationRules(int $transitionId, array $rules): void
+    private function saveAutomationRule(int $transitionId, array $automationRule): void
     {
         $db   = $this->getDatabase();
         $user = Factory::getApplication()->getIdentity();
         $now  = Factory::getDate()->toSql();
 
-        // Replace-all: clear this transition's rules, then re-insert the submitted, enabled ones.
+        // Replace: clear this transition's rule, then insert the submitted one if there is content.
         // Wrapped in a transaction so a failure mid-save can't wipe the existing configuration.
         try {
             $db->transactionStart();
@@ -415,24 +415,19 @@ class TransitionModel extends AdminModel
                     ->bind(':id', $transitionId, ParameterType::INTEGER)
             )->execute();
 
-            foreach ($rules as $rule) {
-                // Skip rows the editor left disabled.
-                if (empty((int) ($rule['published'] ?? 0))) {
-                    continue;
-                }
-
+            if (!empty($automationRule)) {
                 $ruleRow = (object) [
                     'transition_id'   => $transitionId,
                     'published'       => 1,
-                    'ordering'        => (int) ($rule['ordering'] ?? 0),
-                    'rule_type'       => $rule['rule_type'] ?? 'interval',
-                    'interval_value'  => (int) ($rule['interval_value'] ?? 0),
-                    'interval_unit'   => $rule['interval_unit'] ?? 'minutes',
-                    'cron_expression' => $rule['cron_expression'] ?? '',
-                    'run_as_user_id'  => (int) ($rule['run_as_user_id'] ?? 0),
+                    'ordering'        => 0,
+                    'rule_type'       => $automationRule['rule_type'] ?? 'delay',
+                    'delay_value'     => (int) ($automationRule['delay_value'] ?? 0),
+                    'delay_unit'      => $automationRule['delay_unit'] ?? 'minutes',
+                    'cron_expression' => $automationRule['cron_expression'] ?? '',
+                    'run_as_user_id'  => (int) ($automationRule['run_as_user_id'] ?? 0),
                     'loop_mode'       => 0,
-                    'item_filter'     => ($rule['condition'] ?? '') !== '' ? $rule['condition'] : null,
-                    'fire_condition'  => null,
+                    'item_filter'     => ($automationRule['item_filter'] ?? '') !== '' ? $automationRule['item_filter'] : null,
+                    'fire_condition'  => ($automationRule['fire_condition'] ?? '') !== '' ? $automationRule['fire_condition'] : null,
                     'created'         => $now,
                     'created_by'      => $user->id,
                     'modified'        => $now,
@@ -464,29 +459,24 @@ class TransitionModel extends AdminModel
      */
     private function validateAutomationRule(array $data): bool
     {
-        // Nothing to validate when automation is disabled.
-        if (empty((int) ($data['published'] ?? 0))) {
-            return true;
-        }
-
         $app      = Factory::getApplication();
-        $ruleType = $data['rule_type'] ?? 'interval';
+        $ruleType = $data['rule_type'] ?? 'delay';
 
-        if (!\in_array($ruleType, ['interval', 'cron'], true)) {
+        if (!\in_array($ruleType, ['delay', 'cron'], true)) {
             $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_RULE_TYPE'), 'error');
 
             return false;
         }
 
-        if ($ruleType === 'interval') {
-            if ((int) ($data['interval_value'] ?? 0) < 1) {
-                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_INTERVAL_VALUE'), 'error');
+        if ($ruleType === 'delay') {
+            if ((int) ($data['delay_value'] ?? 0) < 0) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_DELAY_VALUE'), 'error');
 
                 return false;
             }
 
-            if (!\in_array($data['interval_unit'] ?? '', ['minutes', 'hours', 'days', 'months'], true)) {
-                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_INTERVAL_UNIT'), 'error');
+            if (!\in_array($data['delay_unit'] ?? '', ['minutes', 'hours', 'days', 'months'], true)) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_DELAY_UNIT'), 'error');
 
                 return false;
             }
@@ -505,28 +495,20 @@ class TransitionModel extends AdminModel
         return true;
     }
 
-    private function validateAutomation(array $rules): bool
+    private function validateAutomation(array $automationRule): bool
     {
-        $app              = Factory::getApplication();
-        $missingRunAsUser = false;
-
-        foreach ($rules as $rule) {
-            if (empty((int) ($rule['published'] ?? 0))) {
-                continue;
-            }
-
-            if (!$this->validateAutomationRule($rule)) {
-                return false;
-            }
-
-            // Non-blocking: a rule with no run-as user can't execute
-            if ((int) ($rule['run_as_user_id'] ?? 0) === 0) {
-                $missingRunAsUser = true;
-            }
+        // No rule submitted (automation disabled or empty) is valid.
+        if (empty($automationRule)) {
+            return true;
         }
 
-        if ($missingRunAsUser) {
-            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_WARNING_NO_RUN_AS'), 'warning');
+        if (!$this->validateAutomationRule($automationRule)) {
+            return false;
+        }
+
+        // Non-blocking: a rule with no run-as user cannot execute.
+        if ((int) ($automationRule['run_as_user_id'] ?? 0) === 0) {
+            Factory::getApplication()->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_WARNING_NO_RUN_AS'), 'warning');
         }
 
         return true;

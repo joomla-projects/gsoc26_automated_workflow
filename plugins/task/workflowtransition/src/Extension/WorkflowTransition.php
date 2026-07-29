@@ -164,8 +164,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 $db->quoteName('wta.transition_id'),
                 $db->quoteName('wt.from_stage_id'),
                 $db->quoteName('wt.to_stage_id'),
-                $db->quoteName('wta.interval_value'),
-                $db->quoteName('wta.interval_unit'),
+                $db->quoteName('wta.delay_value'),
+                $db->quoteName('wta.delay_unit'),
                 $db->quoteName('wta.rule_type'),
                 $db->quoteName('wta.cron_expression'),
                 $db->quoteName('wta.item_filter'),
@@ -232,15 +232,15 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         }
 
         $date     = new \DateTime($enteredAt, new \DateTimeZone('UTC'));
-        $interval = match ($rule->interval_unit) {
-            'minutes' => new \DateInterval('PT' . $rule->interval_value . 'M'),
-            'hours'   => new \DateInterval('PT' . $rule->interval_value . 'H'),
-            'days'    => new \DateInterval('P' . $rule->interval_value . 'D'),
-            'months'  => new \DateInterval('P' . $rule->interval_value . 'M'),
+        $delay    = match ($rule->delay_unit) {
+            'minutes' => new \DateInterval('PT' . $rule->delay_value . 'M'),
+            'hours'   => new \DateInterval('PT' . $rule->delay_value . 'H'),
+            'days'    => new \DateInterval('P' . $rule->delay_value . 'D'),
+            'months'  => new \DateInterval('P' . $rule->delay_value . 'M'),
             default   => null,
         };
 
-        return $interval ? $date->add($interval) : null;
+        return $delay ? $date->add($delay) : null;
     }
 
     /**

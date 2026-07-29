@@ -111,3 +111,68 @@
   margin-left: auto;
   line-height: 1;
 }
+
+.cb-root {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cb-root-head {
+  margin-bottom: 0;
+}
+
+.subform-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.5%;
+}
+
+.subform-wrapper > .control-group {
+  flex-basis: 100%;
+}
+
+.control-group.cb-rule-type {
+  flex-basis: 32%;
+}
+
+.control-group.cb-delay-value {
+  flex-basis: 32%;
+}
+
+.control-group.cb-delay-unit {
+  flex-basis: 33%;
+}
+
+.control-group.cb-cron {
+  flex-basis: 66.5%;
+}
+
+.control-group.cb-rule-type,
+.control-group.cb-delay-value:not(.hidden),
+.control-group.cb-delay-unit:not(.hidden),
+.control-group.cb-cron:not(.hidden) {
+  display: block;
+}
+
+.control-group.cb-rule-type .control-label,
+.control-group.cb-delay-value .control-label,
+.control-group.cb-delay-unit .control-label,
+.control-group.cb-cron .control-label {
+  display: block;
+  width: 100%;
+  float: none;
+  text-align: left;
+  margin: 0 0 4px;
+  padding: 0;
+}
+
+.control-group.cb-rule-type .controls,
+.control-group.cb-delay-value .controls,
+.control-group.cb-delay-unit .controls,
+.control-group.cb-cron .controls {
+  display: block;
+  width: 100%;
+  float: none;
+  margin-left: 0;
+}

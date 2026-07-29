@@ -243,8 +243,8 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         $db    = $this->getDatabase();
         $query = $db->getQuery(true)
             ->select($db->quoteName([
-                'wta.interval_value',
-                'wta.interval_unit',
+                'wta.delay_value',
+                'wta.delay_unit',
                 'wta.rule_type',
                 'wta.cron_expression',
                 'wta.ordering',
@@ -284,11 +284,11 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         }
 
         $date     = new \DateTime($enteredAt, new \DateTimeZone('UTC'));
-        $interval = match ($rule->interval_unit) {
-            'minutes' => new \DateInterval('PT' . $rule->interval_value . 'M'),
-            'hours'   => new \DateInterval('PT' . $rule->interval_value . 'H'),
-            'days'    => new \DateInterval('P' . $rule->interval_value . 'D'),
-            'months'  => new \DateInterval('P' . $rule->interval_value . 'M'),
+        $delay    = match ($rule->delay_unit) {
+            'minutes' => new \DateInterval('PT' . $rule->delay_value . 'M'),
+            'hours'   => new \DateInterval('PT' . $rule->delay_value . 'H'),
+            'days'    => new \DateInterval('P' . $rule->delay_value . 'D'),
+            'months'  => new \DateInterval('P' . $rule->delay_value . 'M'),
             default   => null,
         };
 
