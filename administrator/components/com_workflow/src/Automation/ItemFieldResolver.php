@@ -1,14 +1,14 @@
 <?php
 
 /**
- * @package Joomla.Plugin
- * @subpackage Task.WorkflowTransition
+ * @package     Joomla.Administrator
+ * @subpackage  com_workflow
  *
  * @copyright (C) 2026 Open Source Matters, Inc. <https://www.joomla.org>
  * @license GNU General Public License version 2 or later; see LICENSE.txt
  */
 
-namespace Joomla\Plugin\Task\WorkflowTransition\Condition;
+namespace Joomla\Component\Workflow\Administrator\Automation;
 
 use Joomla\CMS\Factory;
 use Joomla\Database\DatabaseInterface;

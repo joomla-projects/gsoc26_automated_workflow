@@ -84,6 +84,14 @@ $lang     = $this->getLanguage()->getTag();
 
         <?php endif; ?>
 
+                <?php if (!empty($this->item->id)) : ?>
+            <?php echo HTMLHelper::_('uitab.addTab', 'myTab', 'upcoming', Text::_('COM_WORKFLOW_UPCOMING_TAB')); ?>
+            <?php echo $this->loadTemplate('upcoming'); ?>
+            <?php echo HTMLHelper::_('uitab.endTab'); ?>
+        <?php endif; ?>
+
+        <?php echo HTMLHelper::_('uitab.endTabSet'); ?>
+
         <?php echo HTMLHelper::_('uitab.endTabSet'); ?>
     </div>
     <?php echo $this->form->getInput('extension'); ?>

@@ -16,6 +16,7 @@ use Joomla\CMS\Form\Form;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Log\Log;
 use Joomla\CMS\MVC\Model\AdminModel;
+use Joomla\Component\Workflow\Administrator\Automation\UpcomingTransitionsCalculator;
 use Joomla\String\StringHelper;
 
 // phpcs:disable PSR1.Files.SideEffects
@@ -47,6 +48,29 @@ class WorkflowModel extends AdminModel
         $extension = $app->getUserStateFromRequest($context . '.filter.extension', 'extension', null, 'cmd');
 
         $this->setState('filter.extension', $extension);
+    }
+
+    /**
+     * Returns this workflow's upcoming automated transitions, computed on the fly.
+     *
+     * Delegates to the shared calculator so the editor, and later the article-level
+     * surfaces, all read the same result. An unsaved workflow (id 0) has none.
+     *
+     * @param   integer  $workflowId  The workflow id.
+     *
+     * @return  \Joomla\Component\Workflow\Administrator\Automation\UpcomingTransition[]
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function getUpcomingTransitions(int $workflowId): array
+    {
+        if ($workflowId <= 0) {
+            return [];
+        }
+
+        $calculator = new UpcomingTransitionsCalculator($this->getDatabase());
+
+        return $calculator->forWorkflow($workflowId);
     }
 
     /**
