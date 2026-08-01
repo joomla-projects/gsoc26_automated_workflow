@@ -24,7 +24,8 @@ namespace Joomla\Component\Workflow\Administrator\Automation;
  * @since  __DEPLOY_VERSION__
  */
 
-final class UpcomingTransition{
+final class UpcomingTransition
+{
     /**
      * @param   integer         $itemId          The content item id.
      * @param   string          $extension       The workflow extension, e.g. com_content.article.
@@ -56,5 +57,6 @@ final class UpcomingTransition{
         public readonly ?string $delayUnit,
         public readonly ?string $cronExpression,
         public readonly bool $hasCondition
-    ) {}
+    ) {
+    }
 }

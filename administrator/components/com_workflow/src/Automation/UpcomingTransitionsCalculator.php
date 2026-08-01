@@ -10,10 +10,9 @@
 
 namespace Joomla\Component\Workflow\Administrator\Automation;
 
-use DateTime;
-use DateTimeZone;
 use Joomla\Database\DatabaseInterface;
 use Joomla\Database\ParameterType;
+use Joomla\Database\QueryInterface;
 
 // phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;
@@ -72,8 +71,37 @@ final class UpcomingTransitionsCalculator
      */
     public function forWorkflow(int $workflowId): array
     {
-        $rows = $this->fetchRows($workflowId);
+        return $this->buildFromRows($this->fetchRowsForWorkflow($workflowId));
+    }
 
+    /**
+     * Calculates the next automated transition for a single item, or null if it has none.
+     *
+     * @param   integer  $itemId     The content item id.
+     * @param   string   $extension  The workflow extension, e.g. com_content.article.
+     *
+     * @return  UpcomingTransition|null
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function forItem(int $itemId, string $extension): ?UpcomingTransition
+    {
+        $upcoming = $this->buildFromRows($this->fetchRowsForItem($itemId, $extension));
+
+        return $upcoming[0] ?? null;
+    }
+
+    /**
+     * Turns candidate rows into upcoming transitions: soonest in-scope rule per item.
+     *
+     * @param   object[]  $rows  Candidate (item, transition, rule) rows.
+     *
+     * @return  UpcomingTransition[]  Soonest first; uncomputable times last.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function buildFromRows(array $rows): array
+    {
         // Keep the soonest in-scope rule per item. An item can have several automated exits
         // from its stage; we only show the one that fires next.
         $bestByItem = [];
@@ -94,7 +122,7 @@ final class UpcomingTransitionsCalculator
             }
         }
 
-        $now      = new DateTime('now', new DateTimeZone('UTC'));
+        $now      = new \DateTime('now', new \DateTimeZone('UTC'));
         $upcoming = [];
 
         foreach ($bestByItem as $winner) {
@@ -107,7 +135,7 @@ final class UpcomingTransitionsCalculator
     }
 
     /**
-     * Loads the candidate (item, transition, rule) rows for a workflow.
+     * Loads the candidate rows for a whole workflow.
      *
      * @param   integer  $workflowId  The workflow id.
      *
@@ -115,10 +143,50 @@ final class UpcomingTransitionsCalculator
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function fetchRows(int $workflowId): array
+    private function fetchRowsForWorkflow(int $workflowId): array
     {
         $db    = $this->database;
-        $query = $db->getQuery(true)
+        $query = $this->baseRowsQuery()
+            ->where($db->quoteName('wt.workflow_id') . ' = :workflowId')
+            ->bind(':workflowId', $workflowId, ParameterType::INTEGER);
+
+        return $db->setQuery($query)->loadObjectList() ?: [];
+    }
+
+    /**
+     * Loads the candidate rows for a single item.
+     *
+     * @param   integer  $itemId     The content item id.
+     * @param   string   $extension  The workflow extension.
+     *
+     * @return  object[]
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function fetchRowsForItem(int $itemId, string $extension): array
+    {
+        $db    = $this->database;
+        $query = $this->baseRowsQuery()
+            ->where($db->quoteName('was.item_id') . ' = :itemId')
+            ->where($db->quoteName('was.extension') . ' = :extension')
+            ->bind(':itemId', $itemId, ParameterType::INTEGER)
+            ->bind(':extension', $extension);
+
+        return $db->setQuery($query)->loadObjectList() ?: [];
+    }
+
+    /**
+     * Builds the shared select and joins, without a scope clause.
+     *
+     * @return  QueryInterface
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function baseRowsQuery(): QueryInterface
+    {
+        $db = $this->database;
+
+        return $db->getQuery(true)
             ->select(
                 [
                     $db->quoteName('was.item_id'),
@@ -167,27 +235,23 @@ final class UpcomingTransitionsCalculator
                 $db->quoteName('c.id') . ' = ' . $db->quoteName('was.item_id')
                     . ' AND ' . $db->quoteName('was.extension') . ' = ' . $db->quote('com_content.article')
             )
-            ->where($db->quoteName('wt.workflow_id') . ' = :workflowId')
             ->where($db->quoteName('wta.published') . ' = 1')
-            ->bind(':workflowId', $workflowId, ParameterType::INTEGER)
             ->order($db->quoteName('wta.ordering') . ' ASC');
-
-        return $db->setQuery($query)->loadObjectList() ?: [];
     }
 
     /**
      * Builds one upcoming transition from a winning row.
      *
      * @param   object         $row           The chosen (item, transition, rule) row.
-     * @param   DateTime|null  $firesAt       The computed fire time, or null.
+     * @param   \DateTime|null  $firesAt       The computed fire time, or null.
      * @param   callable       $resolveField  The item's field resolver.
-     * @param   DateTime       $now           Current time (UTC).
+     * @param   \DateTime       $now           Current time (UTC).
      *
      * @return  UpcomingTransition
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function buildUpcomingTransition(object $row, ?DateTime $firesAt, callable $resolveField, DateTime $now): UpcomingTransition
+    private function buildUpcomingTransition(object $row, ?\DateTime $firesAt, callable $resolveField, \DateTime $now): UpcomingTransition
     {
         $requiresIntervention = (int) $row->requires_intervention === 1;
         $hasCondition         = $row->fire_condition !== null && trim((string) $row->fire_condition) !== '';
@@ -213,10 +277,10 @@ final class UpcomingTransitionsCalculator
      * Decides the display status for one upcoming move.
      *
      * @param   object         $row                   The rule row.
-     * @param   DateTime|null  $firesAt               The computed fire time.
+     * @param   \DateTime|null  $firesAt               The computed fire time.
      * @param   boolean        $hasCondition          Whether a fire condition exists.
      * @param   callable       $resolveField          The item's field resolver.
-     * @param   DateTime       $now                   Current time (UTC).
+     * @param   \DateTime       $now                   Current time (UTC).
      * @param   boolean        $requiresIntervention  Whether the item is flagged stuck.
      *
      * @return  string
@@ -225,10 +289,10 @@ final class UpcomingTransitionsCalculator
      */
     private function resolveStatus(
         object $row,
-        ?DateTime $firesAt,
+        ?\DateTime $firesAt,
         bool $hasCondition,
         callable $resolveField,
-        DateTime $now,
+        \DateTime $now,
         bool $requiresIntervention
     ): string {
         if ($requiresIntervention) {
@@ -273,14 +337,14 @@ final class UpcomingTransitionsCalculator
      * Whether a candidate fire time is sooner than the current best. Null (uncomputable) is
      * treated as the latest possible, so a computable time always wins.
      *
-     * @param   DateTime|null  $candidate  The candidate time.
-     * @param   DateTime|null  $current    The current best time.
+     * @param   \DateTime|null  $candidate  The candidate time.
+     * @param   \DateTime|null  $current    The current best time.
      *
      * @return  boolean
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function isSooner(?DateTime $candidate, ?DateTime $current): bool
+    private function isSooner(?\DateTime $candidate, ?\DateTime $current): bool
     {
         if ($candidate === null) {
             return false;
@@ -318,5 +382,56 @@ final class UpcomingTransitionsCalculator
         }
 
         return $a->firesAt <=> $b->firesAt;
+    }
+
+    /**
+     * Calculates the next automated transition for a set of items, keyed by item id.
+     *
+     * One query for the whole set, so a list view can badge many rows without a query each
+     * Only items that actually have a pending move appear in the result.
+     *
+     * @param int[] $itemIds The content item ids.
+     * @param string $extension The workflow extension, e.g. com_content.article.
+     *
+     * @return array<int, UpcomingTransition>
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    public function forItems(array $itemIds, string $extension): array
+    {
+        $itemIds = array_values(array_unique(array_map('intval', $itemIds)));
+
+        if (empty($itemIds)) {
+            return [];
+        }
+
+        $byItem = [];
+
+        foreach ($this->buildFromRows($this->fetchRowsForItems($itemIds, $extension)) as $transition) {
+            $byItem[$transition->itemId] = $transition;
+        }
+
+        return $byItem;
+    }
+
+    /**
+     * Loads the candidate row for a set of items
+     *
+     * @param int[] $itemIds The content item ids.
+     * @param string $extension The workflow extension.
+     *
+     * @return object[]
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function fetchRowsForItems(array $itemIds, string $extension): array
+    {
+        $db                 = $this->database;
+        $scheduledRowsQuery = $this->baseRowsQuery()
+            ->whereIn($db->quoteName('was.item_id'), $itemIds)
+            ->where($db->quoteName('was.extension') . ' = :extension')
+            ->bind(':extension', $extension);
+
+        return $db->setQuery($scheduledRowsQuery)->loadObjectList() ?: [];
     }
 }

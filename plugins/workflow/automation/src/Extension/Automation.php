@@ -2,12 +2,14 @@
 
 namespace Joomla\Plugin\Workflow\Automation\Extension;
 
-use Joomla\Component\Workflow\Administrator\Automation\DeadlineCalculator;
 use Joomla\CMS\Event\Model\AfterSaveEvent;
+use Joomla\CMS\Event\Model\PrepareFormEvent;
 use Joomla\CMS\Event\Workflow\WorkflowTransitionEvent;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\CMS\Workflow\Workflow;
+use Joomla\CMS\Workflow\WorkflowServiceInterface;
+use Joomla\Component\Workflow\Administrator\Automation\DeadlineCalculator;
 use Joomla\Database\DatabaseAwareTrait;
 use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
@@ -26,7 +28,60 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         return [
             'onWorkflowAfterTransition' => 'logStageEntry',
             'onContentAfterSave'        => 'reevaluateOnChange',
+            'onContentPrepareForm'      => 'injectUpcomingTransitionField',
         ];
+    }
+
+    /**
+     * Adds the read-only "next automated transition" field to a workflow-enabled item form
+     *
+     * The com_content article edit template prints this field in its sidebar. On any other form
+     * it stays inert because the field is simply not added.
+     *
+     * @param PrepareFormEvent $event The form event.
+     *
+     * @return void
+     *
+     * @since __DEPLOY__VERSION__
+     */
+    public function injectUpcomingTransitionField(PrepareFormEvent $event): void
+    {
+        $form = $event->getForm();
+
+        if (!$this->isWorkflowContentForm((string) $form->getName())) {
+            return;
+        }
+
+        $form->load(
+            '<form>'
+                . '<field name="upcoming_transition"'
+                . ' type="upcomingtransition"'
+                . ' addfieldprefix="Joomla\Component\Workflow\Administrator\Field"'
+                . ' label="COM_WORKFLOW_UPCOMING_ARTICLE_LABEL" />'
+                . '</form>'
+        );
+    }
+
+    /**
+     * Whether a form context is a content item form under an active workflow.
+     *
+     * @param string $context The form name, e.g. com_content.article.
+     *
+     * @return boolean
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function isWorkflowContentForm(string $context): bool
+    {
+        $parts = explode('.', $context);
+
+        if (\count($parts) < 2) {
+            return false;
+        }
+
+        $component = Factory::getApplication()->bootComponent($parts[0]);
+
+        return $component instanceof WorkflowServiceInterface && $component->isWorkflowActive($context);
     }
 
     public function logStageEntry(WorkflowTransitionEvent $event): void

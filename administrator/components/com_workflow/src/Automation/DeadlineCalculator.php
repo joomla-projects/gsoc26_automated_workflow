@@ -12,7 +12,6 @@ namespace Joomla\Component\Workflow\Administrator\Automation;
 
 use Cron\CronExpression;
 use DateTime;
-use DateTimeZone;
 use Joomla\CMS\Factory;
 
 // phpcs:disable PSR1.Files.SideEffects
@@ -64,7 +63,7 @@ final class DeadlineCalculator
             return $deadline;
         }
 
-        $date  = new DateTime($enteredAt, new DateTimeZone('UTC'));
+        $date  = new \DateTime($enteredAt, new \DateTimeZone('UTC'));
         $delay = match ($rule->delay_unit) {
             'minutes' => new \DateInterval('PT' . $rule->delay_value . 'M'),
             'hours'   => new \DateInterval('PT' . $rule->delay_value . 'H'),

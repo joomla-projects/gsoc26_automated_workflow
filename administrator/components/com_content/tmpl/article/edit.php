@@ -74,36 +74,45 @@ $tmpl    = $tmpl ? '&tmpl=' . $tmpl : '';
                     </fieldset>
                 </div>
             </div>
+
             <div class="col-lg-3">
+                <?php // Workflow Stage first, then the automation card, then the standard sidebar fields.
+                ?>
+                <fieldset class="form-vertical">
+                    <?php echo $this->form->renderField('transition'); ?>
+                    <?php echo $this->form->getInput('upcoming_transition'); ?>
+                </fieldset>
+                <?php $this->form->removeField('transition'); ?>
                 <?php echo LayoutHelper::render('joomla.edit.global', $this); ?>
             </div>
         </div>
 
         <?php echo HTMLHelper::_('uitab.endTab'); ?>
 
-        <?php // Do not show the images and links options if the edit form is configured not to. ?>
+        <?php // Do not show the images and links options if the edit form is configured not to.
+        ?>
         <?php if ($params->get('show_urls_images_backend') == 1) : ?>
             <?php echo HTMLHelper::_('uitab.addTab', 'myTab', 'images', Text::_('COM_CONTENT_FIELDSET_URLS_AND_IMAGES')); ?>
             <div class="row">
                 <div class="col-12 col-lg-6">
-                <?php foreach ($fieldsetsInImages as $fieldset) : ?>
-                    <fieldset id="fieldset-<?php echo $fieldset; ?>" class="options-form">
-                        <legend><?php echo Text::_($this->form->getFieldsets()[$fieldset]->label); ?></legend>
-                        <div>
-                        <?php echo $this->form->renderFieldset($fieldset); ?>
-                        </div>
-                    </fieldset>
-                <?php endforeach; ?>
+                    <?php foreach ($fieldsetsInImages as $fieldset) : ?>
+                        <fieldset id="fieldset-<?php echo $fieldset; ?>" class="options-form">
+                            <legend><?php echo Text::_($this->form->getFieldsets()[$fieldset]->label); ?></legend>
+                            <div>
+                                <?php echo $this->form->renderFieldset($fieldset); ?>
+                            </div>
+                        </fieldset>
+                    <?php endforeach; ?>
                 </div>
                 <div class="col-12 col-lg-6">
-                <?php foreach ($fieldsetsInLinks as $fieldset) : ?>
-                    <fieldset id="fieldset-<?php echo $fieldset; ?>" class="options-form">
-                        <legend><?php echo Text::_($this->form->getFieldsets()[$fieldset]->label); ?></legend>
-                        <div>
-                        <?php echo $this->form->renderFieldset($fieldset); ?>
-                        </div>
-                    </fieldset>
-                <?php endforeach; ?>
+                    <?php foreach ($fieldsetsInLinks as $fieldset) : ?>
+                        <fieldset id="fieldset-<?php echo $fieldset; ?>" class="options-form">
+                            <legend><?php echo Text::_($this->form->getFieldsets()[$fieldset]->label); ?></legend>
+                            <div>
+                                <?php echo $this->form->renderFieldset($fieldset); ?>
+                            </div>
+                        </fieldset>
+                    <?php endforeach; ?>
                 </div>
             </div>
 
@@ -112,7 +121,8 @@ $tmpl    = $tmpl ? '&tmpl=' . $tmpl : '';
 
         <?php echo LayoutHelper::render('joomla.edit.params', $this); ?>
 
-        <?php // Do not show the publishing options if the edit form is configured not to. ?>
+        <?php // Do not show the publishing options if the edit form is configured not to.
+        ?>
         <?php if ($params->get('show_publishing_options', 1) == 1) : ?>
             <?php echo HTMLHelper::_('uitab.addTab', 'myTab', 'publishing', Text::_('COM_CONTENT_FIELDSET_PUBLISHING')); ?>
             <div class="row">
@@ -120,7 +130,7 @@ $tmpl    = $tmpl ? '&tmpl=' . $tmpl : '';
                     <fieldset id="fieldset-publishingdata" class="options-form">
                         <legend><?php echo Text::_('JGLOBAL_FIELDSET_PUBLISHING'); ?></legend>
                         <div>
-                        <?php echo LayoutHelper::render('joomla.edit.publishingdata', $this); ?>
+                            <?php echo LayoutHelper::render('joomla.edit.publishingdata', $this); ?>
                         </div>
                     </fieldset>
                 </div>
@@ -128,7 +138,7 @@ $tmpl    = $tmpl ? '&tmpl=' . $tmpl : '';
                     <fieldset id="fieldset-metadata" class="options-form">
                         <legend><?php echo Text::_('JGLOBAL_FIELDSET_METADATA_OPTIONS'); ?></legend>
                         <div>
-                        <?php echo LayoutHelper::render('joomla.edit.metadata', $this); ?>
+                            <?php echo LayoutHelper::render('joomla.edit.metadata', $this); ?>
                         </div>
                     </fieldset>
                 </div>
@@ -139,10 +149,10 @@ $tmpl    = $tmpl ? '&tmpl=' . $tmpl : '';
         <?php if (!$isModal && $assoc && $params->get('show_associations_edit', 1) == 1) : ?>
             <?php echo HTMLHelper::_('uitab.addTab', 'myTab', 'associations', Text::_('JGLOBAL_FIELDSET_ASSOCIATIONS')); ?>
             <fieldset id="fieldset-associations" class="options-form">
-            <legend><?php echo Text::_('JGLOBAL_FIELDSET_ASSOCIATIONS'); ?></legend>
-            <div>
-            <?php echo LayoutHelper::render('joomla.edit.associations', $this); ?>
-            </div>
+                <legend><?php echo Text::_('JGLOBAL_FIELDSET_ASSOCIATIONS'); ?></legend>
+                <div>
+                    <?php echo LayoutHelper::render('joomla.edit.associations', $this); ?>
+                </div>
             </fieldset>
             <?php echo HTMLHelper::_('uitab.endTab'); ?>
         <?php elseif ($isModal && $assoc) : ?>
@@ -154,7 +164,7 @@ $tmpl    = $tmpl ? '&tmpl=' . $tmpl : '';
             <fieldset id="fieldset-editor" class="options-form">
                 <legend><?php echo Text::_('COM_CONTENT_SLIDER_EDITOR_CONFIG'); ?></legend>
                 <div class="form-grid">
-                <?php echo $this->form->renderFieldset('editorConfig'); ?>
+                    <?php echo $this->form->renderFieldset('editorConfig'); ?>
                 </div>
             </fieldset>
             <?php echo HTMLHelper::_('uitab.endTab'); ?>
@@ -165,7 +175,7 @@ $tmpl    = $tmpl ? '&tmpl=' . $tmpl : '';
             <fieldset id="fieldset-rules" class="options-form">
                 <legend><?php echo Text::_('COM_CONTENT_FIELDSET_RULES'); ?></legend>
                 <div>
-                <?php echo $this->form->getInput('rules'); ?>
+                    <?php echo $this->form->getInput('rules'); ?>
                 </div>
             </fieldset>
             <?php echo HTMLHelper::_('uitab.endTab'); ?>
@@ -173,7 +183,8 @@ $tmpl    = $tmpl ? '&tmpl=' . $tmpl : '';
 
         <?php echo HTMLHelper::_('uitab.endTabSet'); ?>
 
-        <?php // Creating 'id' hiddenField to cope with com_associations sidebyside loop ?>
+        <?php // Creating 'id' hiddenField to cope with com_associations sidebyside loop
+        ?>
         <?php if ($params->get('show_publishing_options', 1) == 0) : ?>
             <?php $hidden_fields = $this->form->getInput('id'); ?>
             <div class="hidden"><?php echo $hidden_fields; ?></div>

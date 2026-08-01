@@ -104,7 +104,7 @@ class HtmlView extends BaseHtmlView
 
         // The Upcoming Transitions tab reads this; id 0 (new workflow) yields an empty list.
         $this->upcomingTransitions = $model->getUpcomingTransitions((int) $this->item->id);
-        $extension = $this->state->get('filter.extension');
+        $extension                 = $this->state->get('filter.extension');
 
         $parts = explode('.', $extension);
 
