@@ -23,6 +23,7 @@ use Joomla\CMS\Layout\LayoutHelper;
 use Joomla\CMS\Router\Route;
 use Joomla\CMS\Session\Session;
 use Joomla\Component\Content\Administrator\Helper\ContentHelper;
+use Joomla\Component\Workflow\Administrator\Automation\RelativeTime;
 use Joomla\Component\Workflow\Administrator\Automation\UpcomingTransitionsCalculator;
 use Joomla\Database\DatabaseInterface;
 use Joomla\Utilities\ArrayHelper;
@@ -258,7 +259,7 @@ $assoc = Associations::isEnabled();
                                                     'waiting_condition' => Text::_('COM_WORKFLOW_UPCOMING_STATUS_WAITING'),
                                                     'not_scheduled'     => Text::_('COM_WORKFLOW_UPCOMING_STATUS_NOT_SCHEDULED'),
                                                     default             => $upcoming->firesAt !== null
-                                                        ? HTMLHelper::_('date', $upcoming->firesAt->format('Y-m-d H:i:s'), Text::_('DATE_FORMAT_LC2'))
+                                                        ? RelativeTime::until($upcoming->firesAt) . ' (' . HTMLHelper::_('date', $upcoming->firesAt->format('Y-m-d H:i:s'), Text::_('DATE_FORMAT_LC2')) . ')'
                                                         : '',
                                                 };
     ?>

@@ -13,6 +13,7 @@ defined('_JEXEC') or die;
 use Joomla\CMS\HTML\HTMLHelper;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Router\Route;
+use Joomla\Component\Workflow\Administrator\Automation\RelativeTime;
 
 /** @var \Joomla\Component\Workflow\Administrator\View\Workflow\HtmlView $this */
 
@@ -72,7 +73,8 @@ $unitKeys = [
                     <?php elseif ($transition->status === 'waiting_condition') : ?>
                         <span class="badge bg-warning text-dark"><?php echo Text::_('COM_WORKFLOW_UPCOMING_STATUS_WAITING'); ?></span>
                     <?php else : ?>
-                        <?php echo HTMLHelper::_('date', $transition->firesAt->format('Y-m-d H:i:s'), Text::_('DATE_FORMAT_LC2')); ?>
+                        <div><?php echo RelativeTime::until($transition->firesAt); ?></div>
+                        <div class="small text-muted"><?php echo HTMLHelper::_('date', $transition->firesAt->format('Y-m-d H:i:s'), Text::_('DATE_FORMAT_LC2')); ?></div>
                         <?php if ($transition->hasCondition) : ?>
                             <span class="badge bg-info"><?php echo Text::_('COM_WORKFLOW_UPCOMING_SUBJECT_CONDITION'); ?></span>
                         <?php endif; ?>
