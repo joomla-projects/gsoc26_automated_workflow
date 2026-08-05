@@ -22,7 +22,7 @@ if (empty($this->upcomingTransitions)) : ?>
         <span class="icon-info-circle" aria-hidden="true"></span>
         <?php echo Text::_('COM_WORKFLOW_UPCOMING_EMPTY'); ?>
     </div>
-    <?php
+<?php
     return;
 endif;
 
@@ -54,16 +54,16 @@ $unitKeys = [
                     ?>
                     <?php if ($transition->editUrl !== '') : ?>
                         <a href="<?php echo Route::_($transition->editUrl); ?>">
-                            <?php echo htmlspecialchars($itemLabel, ENT_QUOTES, 'UTF-8'); ?>
+                            <?php echo $this->escape($itemLabel); ?>
                         </a>
                     <?php else : ?>
-                        <?php echo htmlspecialchars($itemLabel, ENT_QUOTES, 'UTF-8'); ?>
+                        <?php echo $this->escape($itemLabel); ?>
                     <?php endif; ?>
                 </td>
                 <td>
-                    <span class="badge bg-secondary"><?php echo htmlspecialchars($transition->fromStage, ENT_QUOTES, 'UTF-8'); ?></span>
+                    <span class="badge bg-secondary"><?php echo $this->escape(Text::_($transition->fromStage)); ?></span>
                     <span class="icon-arrow-right icon-fw" aria-hidden="true"></span>
-                    <span class="badge bg-secondary"><?php echo htmlspecialchars($transition->toStage, ENT_QUOTES, 'UTF-8'); ?></span>
+                    <span class="badge bg-secondary"><?php echo $this->escape(Text::_($transition->toStage)); ?></span>
                 </td>
                 <td>
                     <?php if ($transition->status === 'needs_attention') : ?>
@@ -82,7 +82,7 @@ $unitKeys = [
                 </td>
                 <td>
                     <?php if ($transition->ruleType === 'cron') : ?>
-                        <?php echo Text::sprintf('COM_WORKFLOW_UPCOMING_TRIGGER_CRON', '<code>' . htmlspecialchars((string) $transition->cronExpression, ENT_QUOTES, 'UTF-8') . '</code>'); ?>
+                        <?php echo Text::sprintf('COM_WORKFLOW_UPCOMING_TRIGGER_CRON', '<code>' . $this->escape((string) $transition->cronExpression) . '</code>'); ?>
                     <?php else : ?>
                         <?php
                         $unitKey = $unitKeys[$transition->delayUnit] ?? '';

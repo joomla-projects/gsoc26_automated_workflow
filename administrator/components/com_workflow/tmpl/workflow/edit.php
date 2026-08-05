@@ -91,8 +91,6 @@ $lang     = $this->getLanguage()->getTag();
                 <?php endif; ?>
 
         <?php echo HTMLHelper::_('uitab.endTabSet'); ?>
-
-        <?php echo HTMLHelper::_('uitab.endTabSet'); ?>
     </div>
     <?php echo $this->form->getInput('extension'); ?>
 

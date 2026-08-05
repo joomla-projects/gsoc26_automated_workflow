@@ -72,10 +72,6 @@ if ($workflow_enabled) :
     $workflow_state    = Factory::getApplication()->bootComponent('com_content')->isFunctionalityUsed('core.state', 'com_content.article');
     $workflow_featured = Factory::getApplication()->bootComponent('com_content')->isFunctionalityUsed('core.featured', 'com_content.article');
 
-    //     $this->filterForm->addControlField('transition_id', '');
-    // endif;
-
-    // $assoc = Associations::isEnabled();
     $this->filterForm->addControlField('transition_id', '');
 endif;
 
@@ -175,8 +171,8 @@ $assoc = Associations::isEnabled();
                             </tr>
                         </thead>
                         <tbody<?php if ($saveOrder) :
-                            ?> class="js-draggable" data-url="<?php echo $saveOrderingUrl; ?>" data-direction="<?php echo strtolower($listDirn); ?>" <?php echo $featured === '1' ? '' : ' data-nested="true"'; ?><?php
-                              endif; ?>>
+                                ?> class="js-draggable" data-url="<?php echo $saveOrderingUrl; ?>" data-direction="<?php echo strtolower($listDirn); ?>" <?php echo $featured === '1' ? '' : ' data-nested="true"'; ?><?php
+                                                                                                                                                                                                                endif; ?>>
                             <?php foreach ($this->items as $i => $item) :
                                 $item->max_ordering = 0;
                                 $ordering             = ($listOrder == 'fp.ordering');
@@ -215,7 +211,7 @@ $assoc = Associations::isEnabled();
                                     }
                                 }
 
-                                ?>
+                            ?>
                                 <tr class="row<?php echo $i % 2; ?>" <?php echo $featured === '1' ? '' : ' data-draggable-group="' . $item->catid . '"'; ?>
                                     <?php echo $dataTransitionsAttribute ?? '' ?>>
                                     <td class="text-center">
@@ -262,12 +258,12 @@ $assoc = Associations::isEnabled();
                                                         ? RelativeTime::until($upcoming->firesAt) . ' (' . HTMLHelper::_('date', $upcoming->firesAt->format('Y-m-d H:i:s'), Text::_('DATE_FORMAT_LC2')) . ')'
                                                         : '',
                                                 };
-    ?>
+                                            ?>
                                                 <div class="small mt-1">
                                                     <span class="badge <?php echo $chipClass; ?> hasTooltip" <?php echo $chipTip !== '' ? ' title="' . htmlspecialchars($chipTip, ENT_QUOTES, 'UTF-8') . '"' : ''; ?>>
                                                         <span class="icon-clock" aria-hidden="true"></span>
                                                         <?php echo htmlspecialchars($upcoming->toStage, ENT_QUOTES, 'UTF-8'); ?>
-                                                    </span>
+                                                     </span>
                                                 </div>
                                             <?php endif; ?>
                                         </td>

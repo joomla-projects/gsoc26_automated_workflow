@@ -76,8 +76,7 @@ $tmpl    = $tmpl ? '&tmpl=' . $tmpl : '';
             </div>
 
             <div class="col-lg-3">
-                <?php // Workflow Stage first, then the automation card, then the standard sidebar fields.
-                ?>
+                <?php // Workflow Stage first, then the automation card, then the standard sidebar fields. ?>
                 <fieldset class="form-vertical">
                     <?php echo $this->form->renderField('transition'); ?>
                     <?php echo $this->form->getInput('upcoming_transition'); ?>

@@ -42,7 +42,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
      *
      * @return void
      *
-     * @since __DEPLOY__VERSION__
+     * @since __DEPLOY_VERSION__
      */
     public function injectUpcomingTransitionField(PrepareFormEvent $event): void
     {

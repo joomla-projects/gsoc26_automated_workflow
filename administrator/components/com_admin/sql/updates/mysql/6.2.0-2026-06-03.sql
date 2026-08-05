@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS `#__workflow_transition_automation` (
 	`delay_value` int DEFAULT NULL,
 	`delay_unit` varchar(10) DEFAULT NULL COMMENT 'minutes, hours, days, months',
     `cron_expression` varchar(100) DEFAULT NULL,
-	`condition_tree` text COMMENT 'JSON expression tree gating this rule (evaluated at selection)',
+	`item_filter` text COMMENT 'JSON filter tree: which items this rule applies to (evaluated at selection)',
 	`fire_condition` text COMMENT 'JSON expression tree: gate evaluated live at fire time',
     `run_as_user_id` int NOT NULL DEFAULT 0 COMMENT 'User identity used to execute the transition',
     `loop_mode` tinyint NOT NULL DEFAULT 0 COMMENT 'Chain into the target stage rule when set',
