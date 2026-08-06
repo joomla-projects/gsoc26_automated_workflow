@@ -10,6 +10,7 @@
 
 namespace Joomla\Component\Workflow\Administrator\Automation;
 
+use Joomla\CMS\Log\Log;
 use Joomla\Database\DatabaseInterface;
 use Joomla\Database\ParameterType;
 use Joomla\Database\QueryInterface;
@@ -109,8 +110,26 @@ final class UpcomingTransitionsCalculator
         foreach ($rows as $row) {
             $resolveField = $this->itemFieldResolver->forItem((int) $row->item_id, $row->extension);
 
-            // The filter decides whether this rule applies to this item at all.
-            if (!$this->conditionEvaluator->evaluate($row->item_filter, $resolveField)) {
+            // The filter decides whether this rule applies to this item at all. A rule that
+            // cannot be evaluated is logged and skipped, so one broken rule never takes down
+            // the whole view.
+            try {
+                if (!$this->conditionEvaluator->evaluate($row->item_filter, $resolveField)) {
+                    continue;
+                }
+            } catch (ConditionEvaluationException $invalidCondition) {
+                Log::add(
+                    \sprintf(
+                        'Skipping automation on transition %d for item %s.%d: %s',
+                        (int) $row->transition_id,
+                        $row->extension,
+                        (int) $row->item_id,
+                        $invalidCondition->getMessage()
+                    ),
+                    Log::WARNING,
+                    'workflow'
+                );
+
                 continue;
             }
 
@@ -303,9 +322,26 @@ final class UpcomingTransitionsCalculator
             return 'not_scheduled';
         }
 
-        // The delay has passed but a condition is still holding the move back.
-        if ($hasCondition && $firesAt <= $now && !$this->conditionEvaluator->evaluate($row->fire_condition, $resolveField)) {
-            return 'waiting_condition';
+        // The delay has passed but a condition is still holding the move back. A condition
+        // that cannot be evaluated shows as needing attention rather than a fire time.
+        try {
+            if ($hasCondition && $firesAt <= $now && !$this->conditionEvaluator->evaluate($row->fire_condition, $resolveField)) {
+                return 'waiting_condition';
+            }
+        } catch (ConditionEvaluationException $invalidCondition) {
+            Log::add(
+                \sprintf(
+                    'Invalid fire condition on transition %d for item %s.%d: %s',
+                    (int) $row->transition_id,
+                    $row->extension,
+                    (int) $row->item_id,
+                    $invalidCondition->getMessage()
+                ),
+                Log::WARNING,
+                'workflow'
+            );
+
+            return 'needs_attention';
         }
 
         return 'scheduled';
