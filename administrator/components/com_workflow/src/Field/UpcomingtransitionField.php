@@ -82,10 +82,9 @@ class UpcomingtransitionField extends FormField
     private function renderCard(UpcomingTransition $upcoming): string
     {
         $fires = match ($upcoming->status) {
-            'needs_attention'   => '<span class="badge bg-danger">' . Text::_('COM_WORKFLOW_UPCOMING_STATUS_ATTENTION') . '</span>',
-            'not_scheduled'     => '<span class="badge bg-secondary">' . Text::_('COM_WORKFLOW_UPCOMING_STATUS_NOT_SCHEDULED') . '</span>',
-            'waiting_condition' => '<span class="badge bg-warning text-dark">' . Text::_('COM_WORKFLOW_UPCOMING_STATUS_WAITING') . '</span>',
-            default             => '<div>' . RelativeTime::until($upcoming->firesAt) . '</div>'
+            'needs_attention' => '<span class="badge bg-danger">' . Text::_('COM_WORKFLOW_UPCOMING_STATUS_ATTENTION') . '</span>',
+            'not_scheduled'   => '<span class="badge bg-secondary">' . Text::_('COM_WORKFLOW_UPCOMING_STATUS_NOT_SCHEDULED') . '</span>',
+            default           => '<div>' . RelativeTime::until($upcoming->firesAt) . '</div>'
                 . '<div class="small text-muted">' . HTMLHelper::_('date', $upcoming->firesAt->format('Y-m-d H:i:s'), Text::_('DATE_FORMAT_LC2')) . '</div>'
                 . ($upcoming->hasCondition
                     ? '<span class="badge bg-info">' . Text::_('COM_WORKFLOW_UPCOMING_SUBJECT_CONDITION') . '</span>'

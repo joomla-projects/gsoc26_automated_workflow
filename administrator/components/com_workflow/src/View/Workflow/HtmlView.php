@@ -84,6 +84,14 @@ class HtmlView extends BaseHtmlView
     protected $upcomingTransitions = [];
 
     /**
+     * The workflow's recent automation log entries.
+     *
+     * @var    object[]
+     * @since  __DEPLOY_VERSION__
+     */
+    protected $automationLog = [];
+
+    /**
      * Display item view
      *
      * @param   string  $tpl  The name of the template file to parse; automatically searches through the template paths.
@@ -104,6 +112,7 @@ class HtmlView extends BaseHtmlView
 
         // The Upcoming Transitions tab reads this; id 0 (new workflow) yields an empty list.
         $this->upcomingTransitions = $model->getUpcomingTransitions((int) $this->item->id);
+        $this->automationLog       = $model->getAutomationLog((int) $this->item->id);
         $extension                 = $this->state->get('filter.extension');
 
         $parts = explode('.', $extension);

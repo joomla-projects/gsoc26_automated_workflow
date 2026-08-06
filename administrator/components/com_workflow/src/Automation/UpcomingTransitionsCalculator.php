@@ -32,6 +32,23 @@ use Joomla\Database\QueryInterface;
 final class UpcomingTransitionsCalculator
 {
     /**
+     * The com_content publishing states that take an item out of circulation, so it has no
+     * upcoming transition worth previewing. These mirror ContentComponent::CONDITION_ARCHIVED
+     * and ::CONDITION_TRASHED, repeated here rather than imported so that com_workflow does
+     * not depend on com_content being installed.
+     *
+     * @var    integer
+     * @since  __DEPLOY_VERSION__
+     */
+    private const CONTENT_STATE_ARCHIVED = 2;
+
+    /**
+     * @var    integer
+     * @since  __DEPLOY_VERSION__
+     */
+    private const CONTENT_STATE_TRASHED = -2;
+
+    /**
      * @var    DatabaseInterface
      * @since  __DEPLOY_VERSION__
      */
@@ -50,15 +67,22 @@ final class UpcomingTransitionsCalculator
     private ItemFieldResolver $itemFieldResolver;
 
     /**
+     * @var    ConditionWindowCalculator
+     * @since  __DEPLOY_VERSION__
+     */
+    private ConditionWindowCalculator $conditionWindowCalculator;
+
+    /**
      * @param   DatabaseInterface  $database  The database driver.
      *
      * @since   __DEPLOY_VERSION__
      */
     public function __construct(DatabaseInterface $database)
     {
-        $this->database           = $database;
-        $this->conditionEvaluator = new ConditionEvaluator();
-        $this->itemFieldResolver  = new ItemFieldResolver($database);
+        $this->database                  = $database;
+        $this->conditionEvaluator        = new ConditionEvaluator();
+        $this->itemFieldResolver         = new ItemFieldResolver($database);
+        $this->conditionWindowCalculator = new ConditionWindowCalculator($database);
     }
 
     /**
@@ -73,6 +97,21 @@ final class UpcomingTransitionsCalculator
     public function forWorkflow(int $workflowId): array
     {
         return $this->buildFromRows($this->fetchRowsForWorkflow($workflowId));
+    }
+
+    /**
+     * Calculates the next automated transition for every item under an extension, across all
+     * of its workflows.
+     *
+     * @param   string  $extension  The workflow extension, e.g. com_content.article.
+     *
+     * @return  UpcomingTransition[]  Soonest first; items with no computable time come last.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function forExtension(string $extension): array
+    {
+        return $this->buildFromRows($this->fetchRowsForExtension($extension));
     }
 
     /**
@@ -133,11 +172,13 @@ final class UpcomingTransitionsCalculator
                 continue;
             }
 
-            $firesAt = DeadlineCalculator::forRule($row->entered_at, $row);
-            $itemKey = $row->extension . '.' . $row->item_id;
+            // Rules compete on when they become due, before any condition is considered, so
+            // the item keeps the rule that comes up first.
+            $deadline = DeadlineCalculator::forRule($row->entered_at, $row);
+            $itemKey  = $row->extension . '.' . $row->item_id;
 
-            if (!isset($bestByItem[$itemKey]) || $this->isSooner($firesAt, $bestByItem[$itemKey]['firesAt'])) {
-                $bestByItem[$itemKey] = ['row' => $row, 'firesAt' => $firesAt, 'resolveField' => $resolveField];
+            if (!isset($bestByItem[$itemKey]) || $this->isSooner($deadline, $bestByItem[$itemKey]['deadline'])) {
+                $bestByItem[$itemKey] = ['row' => $row, 'deadline' => $deadline];
             }
         }
 
@@ -145,7 +186,7 @@ final class UpcomingTransitionsCalculator
         $upcoming = [];
 
         foreach ($bestByItem as $winner) {
-            $upcoming[] = $this->buildUpcomingTransition($winner['row'], $winner['firesAt'], $winner['resolveField'], $now);
+            $upcoming[] = $this->buildUpcomingTransition($winner['row'], $winner['deadline'], $now);
         }
 
         usort($upcoming, [$this, 'compareByFiresAt']);
@@ -168,6 +209,31 @@ final class UpcomingTransitionsCalculator
         $query = $this->baseRowsQuery()
             ->where($db->quoteName('wt.workflow_id') . ' = :workflowId')
             ->bind(':workflowId', $workflowId, ParameterType::INTEGER);
+
+        return $db->setQuery($query)->loadObjectList() ?: [];
+    }
+
+    /**
+     * Loads the candidate rows for every workflow under an extension.
+     *
+     * @param   string  $extension  The workflow extension.
+     *
+     * @return  object[]
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function fetchRowsForExtension(string $extension): array
+    {
+        $db    = $this->database;
+        $query = $this->baseRowsQuery()
+            ->select($db->quoteName('w.title', 'workflow_title'))
+            ->join(
+                'LEFT',
+                $db->quoteName('#__workflows', 'w'),
+                $db->quoteName('w.id') . ' = ' . $db->quoteName('wt.workflow_id')
+            )
+            ->where($db->quoteName('was.extension') . ' = :extension')
+            ->bind(':extension', $extension);
 
         return $db->setQuery($query)->loadObjectList() ?: [];
     }
@@ -255,25 +321,34 @@ final class UpcomingTransitionsCalculator
                     . ' AND ' . $db->quoteName('was.extension') . ' = ' . $db->quote('com_content.article')
             )
             ->where($db->quoteName('wta.published') . ' = 1')
+            // Trashed and archived items are out of circulation, so they have no upcoming
+            // transition to preview. The state column is null for extensions other than
+            // com_content, which the left join above leaves unmatched; those are kept.
+            ->where(
+                '(' . $db->quoteName('c.state') . ' IS NULL OR '
+                . $db->quoteName('c.state') . ' NOT IN ('
+                . self::CONTENT_STATE_TRASHED . ', ' . self::CONTENT_STATE_ARCHIVED . '))'
+            )
             ->order($db->quoteName('wta.ordering') . ' ASC');
     }
 
     /**
      * Builds one upcoming transition from a winning row.
      *
-     * @param   object         $row           The chosen (item, transition, rule) row.
-     * @param   \DateTime|null  $firesAt       The computed fire time, or null.
-     * @param   callable       $resolveField  The item's field resolver.
-     * @param   \DateTime       $now           Current time (UTC).
+     * @param   object          $row       The chosen (item, transition, rule) row.
+     * @param   \DateTime|null  $deadline  The moment the rule becomes due, or null.
+     * @param   \DateTime       $now       Current time (UTC).
      *
      * @return  UpcomingTransition
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function buildUpcomingTransition(object $row, ?\DateTime $firesAt, callable $resolveField, \DateTime $now): UpcomingTransition
+    private function buildUpcomingTransition(object $row, ?\DateTime $deadline, \DateTime $now): UpcomingTransition
     {
         $requiresIntervention = (int) $row->requires_intervention === 1;
         $hasCondition         = $row->fire_condition !== null && trim((string) $row->fire_condition) !== '';
+
+        [$firesAt, $status] = $this->resolveFireTime($row, $deadline, $now, $hasCondition, $requiresIntervention);
 
         return new UpcomingTransition(
             itemId: (int) $row->item_id,
@@ -283,51 +358,62 @@ final class UpcomingTransitionsCalculator
             fromStage: (string) ($row->from_stage_title ?? ''),
             toStage: (string) ($row->to_stage_title ?? ''),
             firesAt: $firesAt,
-            status: $this->resolveStatus($row, $firesAt, $hasCondition, $resolveField, $now, $requiresIntervention),
+            status: $status,
             ruleType: (string) $row->rule_type,
             delayValue: $row->delay_value !== null ? (int) $row->delay_value : null,
             delayUnit: $row->delay_unit,
             cronExpression: $row->cron_expression,
-            hasCondition: $hasCondition
+            hasCondition: $hasCondition,
+            workflowTitle: (string) ($row->workflow_title ?? '')
         );
     }
 
     /**
-     * Decides the display status for one upcoming move.
+     * Works out when a rule will really fire, and the status to show for it.
      *
-     * @param   object         $row                   The rule row.
-     * @param   \DateTime|null  $firesAt               The computed fire time.
-     * @param   boolean        $hasCondition          Whether a fire condition exists.
-     * @param   callable       $resolveField          The item's field resolver.
+     * The deadline only says when the rule becomes due. When a fire condition gates it, the
+     * transition waits until that condition holds, so the moment it actually fires is the
+     * first match at or after the deadline. An overdue item is searched from now rather than
+     * from its deadline, because the past cannot be its next opportunity.
+     *
+     * @param   object          $row                   The rule row.
+     * @param   \DateTime|null  $deadline              The moment the rule becomes due.
      * @param   \DateTime       $now                   Current time (UTC).
-     * @param   boolean        $requiresIntervention  Whether the item is flagged stuck.
+     * @param   boolean         $hasCondition          Whether a fire condition exists.
+     * @param   boolean         $requiresIntervention  Whether the item is flagged stuck.
      *
-     * @return  string
+     * @return  array{0: \DateTime|null, 1: string}  The fire time and the display status.
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function resolveStatus(
+    private function resolveFireTime(
         object $row,
-        ?\DateTime $firesAt,
-        bool $hasCondition,
-        callable $resolveField,
+        ?\DateTime $deadline,
         \DateTime $now,
+        bool $hasCondition,
         bool $requiresIntervention
-    ): string {
+    ): array {
         if ($requiresIntervention) {
-            return 'needs_attention';
+            return [$deadline, 'needs_attention'];
         }
 
-        if ($firesAt === null) {
-            return 'not_scheduled';
+        if ($deadline === null) {
+            return [null, 'not_scheduled'];
         }
 
-        // The delay has passed but a condition is still holding the move back. A condition
-        // that cannot be evaluated shows as needing attention rather than a fire time.
+        if (!$hasCondition) {
+            return [$deadline, 'scheduled'];
+        }
+
+        // A rule whose condition cannot be evaluated has no knowable fire time, and the broken
+        // rule is what needs fixing, so it is logged and flagged rather than guessed at.
         try {
-            if ($hasCondition && $firesAt <= $now && !$this->conditionEvaluator->evaluate($row->fire_condition, $resolveField)) {
-                return 'waiting_condition';
-            }
+            $firesAt = $this->conditionWindowCalculator->firstMatchAtOrAfter(
+                $row->fire_condition,
+                max($deadline, $now),
+                (int) $row->item_id,
+                (string) $row->extension
+            );
         } catch (ConditionEvaluationException $invalidCondition) {
             Log::add(
                 \sprintf(
@@ -341,10 +427,16 @@ final class UpcomingTransitionsCalculator
                 'workflow'
             );
 
-            return 'needs_attention';
+            return [null, 'needs_attention'];
         }
 
-        return 'scheduled';
+        // The condition never opens again within the search horizon, so there is no fire time
+        // to promise: for example a rule gated on a date that has already passed.
+        if ($firesAt === null) {
+            return [null, 'not_scheduled'];
+        }
+
+        return [$firesAt, 'scheduled'];
     }
 
     /**
