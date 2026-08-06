@@ -1,16 +1,19 @@
 /**
  * Automation condition builder.
  *
- * Renders a single expression tree where every row in a group's list is either
- * a check (field / operator / value) or a nested group. Reads its choices from
- * a data-config blob the PHP field emits, and serialises the tree to JSON in a
- * hidden input on every change. Self-contained: no Joomla subforms, no showon.
+ * Renders one expression as a vertical list of rows, where every row is either a
+ * check (field / operator / value) or a nested expression (a bracket). The AND/OR
+ * joining two rows sits between them and is chosen per pair when the second row
+ * is added. Reads its choices from a data-config blob the PHP field emits, and
+ * serialises the expression to JSON in a hidden input on every change.
+ *
+ * Stored shape:
+ *   check:      { "field": "...", "operator": "...", "value": ..., "not": true? }
+ *   expression: { "items": [ ...rows ], "ops": [ "and"|"or", ... ], "not": true? }
+ * ops always holds one entry fewer than items; evaluation runs top to bottom.
  */
 ((document) => {
   "use strict";
-
-  const OP_TO_MATCH = { and: "all", or: "any" };
-  const MATCH_TO_OP = { all: "and", any: "or" };
 
   // Tiny DOM helper. Keys with "-" become attributes; "text" sets textContent.
   const el = (tag, attrs, ...children) => {
@@ -43,6 +46,10 @@
       this.config = JSON.parse(root.dataset.config || "{}");
       this.tree = this.deserialize(this.input.value);
 
+      // While adding a second row to a chain we pause on an AND/OR prompt.
+      // Holds { path, kind } while that prompt is showing, otherwise null.
+      this.pendingAdd = null;
+
       this.ui = el("div", { class: "cb-ui" });
       root.appendChild(this.ui);
 
@@ -62,7 +69,15 @@
         parsed = null;
       }
       if (!parsed || typeof parsed !== "object") {
-        return this.emptyGroup();
+        return this.emptyChain();
+      }
+      // The old format stored { op, children }. It is not migrated; the rule
+      // must be rebuilt. Warn so the disappearance is explained, never silent.
+      if (parsed.op !== undefined || parsed.children !== undefined) {
+        console.warn(
+          "[condition-builder] Discarding a condition stored in the old group format; rebuild and save it.",
+        );
+        return this.emptyChain();
       }
       return this.nodeFromJson(parsed);
     }
@@ -70,31 +85,29 @@
     nodeFromJson(node) {
       if (node && typeof node.field !== "undefined") {
         return {
-          type: "leaf",
+          type: "check",
           field: node.field,
           operator: node.operator || "",
           value: node.value ?? "",
+          not: node.not === true,
         };
       }
-      let negate = false;
-      let groupNode = node;
-      if (node && node.op === "not") {
-        negate = true;
-        groupNode = (node.children && node.children[0]) || {
-          op: "and",
-          children: [],
-        };
-      }
-      const match = OP_TO_MATCH[groupNode.op] || "all";
-      const children = Array.isArray(groupNode.children)
-        ? groupNode.children.map((child) => this.nodeFromJson(child))
+
+      const items = Array.isArray(node.items)
+        ? node.items.map((child) => this.nodeFromJson(child))
         : [];
-      return { type: "group", match, negate, children };
+      const wanted = Math.max(0, items.length - 1);
+      const ops = Array.isArray(node.ops)
+        ? node.ops.slice(0, wanted).map((op) => (op === "or" ? "or" : "and"))
+        : [];
+      while (ops.length < wanted) ops.push("and");
+
+      return { type: "chain", not: node.not === true, items, ops };
     }
 
     nodeToJson(node) {
-      if (node.type === "leaf") {
-        // Drop incomplete checks so they never serialise to a silently-false condition.
+      if (node.type === "check") {
+        // Drop incomplete checks so they never serialise into a broken rule.
         const emptyValue =
           node.value === "" ||
           node.value === null ||
@@ -104,24 +117,36 @@
           return null;
         }
 
-        return {
+        const json = {
           field: node.field,
           operator: node.operator,
           value: node.value,
         };
+        if (node.not) json.not = true;
+        return json;
       }
 
-      // Prune empty groups: an empty "or" serialises to false and would silently kill the rule.
-      const children = node.children
-        .map((child) => this.nodeToJson(child))
-        .filter((child) => child !== null);
+      // Serialise the rows, dropping incomplete ones together with the
+      // operator that would have joined them.
+      const items = [];
+      const ops = [];
 
-      if (children.length === 0) {
+      node.items.forEach((child, index) => {
+        const childJson = this.nodeToJson(child);
+        if (childJson === null) return;
+        if (items.length > 0) {
+          ops.push(node.ops[index - 1] === "or" ? "or" : "and");
+        }
+        items.push(childJson);
+      });
+
+      if (items.length === 0) {
         return null;
       }
 
-      const base = { op: MATCH_TO_OP[node.match] || "and", children };
-      return node.negate ? { op: "not", children: [base] } : base;
+      const json = { items, ops };
+      if (node.not) json.not = true;
+      return json;
     }
 
     sync() {
@@ -131,17 +156,18 @@
 
     // ----- node factories -----
 
-    emptyGroup() {
-      return { type: "group", match: "", negate: false, children: [] };
+    emptyChain() {
+      return { type: "chain", not: false, items: [], ops: [] };
     }
 
-    emptyLeaf() {
+    emptyCheck() {
       const firstField = ((this.config.fields || [])[0] || {}).value || "";
       return {
-        type: "leaf",
+        type: "check",
         field: firstField,
         operator: this.firstOperator(firstField),
         value: this.emptyValue(firstField),
+        not: false,
       };
     }
 
@@ -160,13 +186,21 @@
       if (!path) return this.tree;
       return path
         .split(".")
-        .reduce((node, index) => node.children[Number(index)], this.tree);
+        .reduce((node, index) => node.items[Number(index)], this.tree);
     }
 
     removeAt(path) {
       const parts = path.split(".");
       const index = Number(parts.pop());
-      this.nodeAtPath(parts.join(".")).children.splice(index, 1);
+      const parent = this.nodeAtPath(parts.join("."));
+
+      parent.items.splice(index, 1);
+
+      // Removing a row also removes the operator that joined it: the one
+      // before it, or the first one when the removed row was on top.
+      if (parent.ops.length > 0) {
+        parent.ops.splice(index === 0 ? 0 : index - 1, 1);
+      }
     }
 
     // ----- events -----
@@ -176,18 +210,57 @@
       if (!button || !this.root.contains(button)) return;
       event.preventDefault();
 
-      const path = (button.closest("[data-path]") || {}).getAttribute
-        ? button.closest("[data-path]").getAttribute("data-path")
-        : "";
+      const pathEl = button.closest("[data-path]");
+      const path = pathEl ? pathEl.getAttribute("data-path") : "";
       const action = button.getAttribute("data-action");
+      const chain = this.nodeAtPath(path);
 
-      if (action === "add-check")
-        this.nodeAtPath(path).children.push(this.emptyLeaf());
-      else if (action === "add-group")
-        this.nodeAtPath(path).children.push(this.emptyGroup());
-      else if (action === "remove") this.removeAt(path);
+      if (action === "add-check" || action === "add-expression") {
+        const kind = action === "add-check" ? "check" : "chain";
 
-      this.render();
+        // The first row needs no connector. Any later row pauses on the
+        // AND/OR prompt so the operator is chosen before the row appears.
+        if (chain.items.length >= 1) {
+          this.pendingAdd = { path, kind };
+        } else {
+          chain.items.push(
+            kind === "check" ? this.emptyCheck() : this.emptyChain(),
+          );
+          this.pendingAdd = null;
+        }
+        this.render();
+        return;
+      }
+
+      if (action === "choose-op") {
+        // The prompt was answered: record the connector, then add the row
+        // that was waiting on it.
+        if (this.pendingAdd && this.pendingAdd.path === path) {
+          chain.ops.push(
+            button.getAttribute("data-op") === "or" ? "or" : "and",
+          );
+          chain.items.push(
+            this.pendingAdd.kind === "check"
+              ? this.emptyCheck()
+              : this.emptyChain(),
+          );
+        }
+        this.pendingAdd = null;
+        this.render();
+        return;
+      }
+
+      if (action === "cancel-add") {
+        this.pendingAdd = null;
+        this.render();
+        return;
+      }
+
+      if (action === "remove") {
+        this.pendingAdd = null;
+        this.removeAt(path);
+        this.render();
+      }
     }
 
     onChange(event) {
@@ -198,9 +271,10 @@
         event.target.closest("[data-path]").getAttribute("data-path"),
       );
 
-      if (role === "match") {
-        node.match = event.target.value;
-        this.render();
+      if (role === "op") {
+        const opIndex = Number(event.target.getAttribute("data-index"));
+        node.ops[opIndex] = event.target.value === "or" ? "or" : "and";
+        this.sync();
         return;
       }
 
@@ -211,11 +285,11 @@
         this.render();
         return;
       }
+
       if (role === "operator") node.operator = event.target.value;
       else if (role === "value")
         node.value = this.readValue(event.target, node.field);
-      else if (role === "match") node.match = event.target.value;
-      else if (role === "negate") node.negate = event.target.checked;
+      else if (role === "not") node.not = event.target.checked;
 
       this.sync();
     }
@@ -231,24 +305,23 @@
 
     render() {
       this.ui.innerHTML = "";
-      this.ui.appendChild(this.renderGroup(this.tree, "", true));
+      this.ui.appendChild(this.renderChain(this.tree, "", true));
       this.sync();
     }
 
-    renderGroup(node, path, isRoot) {
+    renderChain(node, path, isRoot) {
       const text = this.config.text;
       const parts = [];
 
       if (!isRoot) {
-        // A real group (expression) keeps its chrome: label, match (only with 2+ items),
-        // negate, and a remove button.
+        // A nested expression keeps its chrome: label, NOT and remove. The
+        // AND/OR joining rows never lives here, it sits between the rows.
         parts.push(
           el(
             "div",
-            { class: "cb-group-head" },
-            el("span", { class: "cb-chip cb-chip-group", text: text.group }),
-            node.children.length >= 2 ? this.renderMatch(node) : null,
-            this.renderNegate(node),
+            { class: "cb-expression-head" },
+            el("span", { class: "cb-chip cb-chip-expression", text: text.expression }),
+            this.renderNot(node),
             el("button", {
               type: "button",
               class: "btn btn-sm btn-danger cb-remove",
@@ -258,83 +331,144 @@
             }),
           ),
         );
-      } else if (node.children.length >= 2) {
-        // The root has no group chrome; it only shows the match selector once it has 2+ items.
-        parts.push(
-          el("div", { class: "cb-root-head" }, this.renderMatch(node)),
-        );
       }
 
       const list = el("div", {
         class: isRoot ? "cb-list cb-list-root" : "cb-list",
       });
-      node.children.forEach((child, index) => {
+
+      node.items.forEach((child, index) => {
         if (index > 0) {
+          // The connector between two rows, chosen per pair and editable.
           list.appendChild(
-            el("div", { class: "cb-band" }, this.bandLabel(node)),
+            el(
+              "div",
+              { class: "cb-band" },
+              this.renderOpSelect(node, index - 1),
+            ),
           );
         }
         const childPath = path === "" ? String(index) : path + "." + index;
         list.appendChild(
-          child.type === "leaf"
-            ? this.renderLeaf(child, childPath)
-            : this.renderGroup(child, childPath, false),
+          child.type === "check"
+            ? this.renderCheck(child, childPath)
+            : this.renderChain(child, childPath, false),
         );
       });
-            if (node.children.length === 0) {
-              list.appendChild(
-                el("div", {
-                  class: "cb-empty",
-                  text: isRoot ? text.empty : text.emptyGroup,
-                }),
-              );
-            }
+
+      if (node.items.length === 0) {
+        list.appendChild(
+          el("div", {
+            class: "cb-empty",
+            text: isRoot ? text.empty : text.emptyExpression,
+          }),
+        );
+      }
       parts.push(list);
 
-      parts.push(
-        el(
-          "div",
-          { class: "cb-add" },
-          el(
-            "button",
-            {
-              type: "button",
-              class: "btn btn-sm btn-success",
-              "data-action": "add-check",
-            },
-            "+ " + text.addCheck,
-          ),
-          el(
-            "button",
-            {
-              type: "button",
-              class: "btn btn-sm btn-success",
-              "data-action": "add-group",
-            },
-            "+ " + text.addGroup,
-          ),
-        ),
-      );
+      parts.push(this.renderAddArea(path));
 
       return el(
         "div",
-        { class: isRoot ? "cb-root" : "cb-group", "data-path": path },
+        { class: isRoot ? "cb-root" : "cb-expression", "data-path": path },
         ...parts,
       );
     }
 
-    bandLabel(node) {
-      if (node.match === "all") return "AND";
-      if (node.match === "any") return "OR";
-      return "?";
+    renderOpSelect(chainNode, opIndex) {
+      const text = this.config.text;
+      const select = el("select", {
+        class: "form-select cb-op",
+        "data-role": "op",
+        "data-index": String(opIndex),
+        "aria-label": text.joinWith,
+      });
+
+      [
+        ["and", text.opAnd],
+        ["or", text.opOr],
+      ].forEach(([value, label]) => {
+        const option = el("option", { value, text: label });
+        if (value === chainNode.ops[opIndex]) option.selected = true;
+        select.appendChild(option);
+      });
+
+      return select;
     }
 
-    renderLeaf(node, path) {
+    renderAddArea(path) {
+      const text = this.config.text;
+
+      // While an add waits on the operator choice, the prompt replaces the
+      // add buttons so the connector is picked before the row appears.
+      if (this.pendingAdd && this.pendingAdd.path === path) {
+        return el(
+          "div",
+          { class: "cb-add cb-add-op" },
+          el("span", { class: "cb-join-label", text: text.joinWith }),
+          el(
+            "button",
+            {
+              type: "button",
+              class: "btn btn-sm btn-primary",
+              "data-action": "choose-op",
+              "data-op": "and",
+            },
+            text.opAnd,
+          ),
+          el(
+            "button",
+            {
+              type: "button",
+              class: "btn btn-sm btn-primary",
+              "data-action": "choose-op",
+              "data-op": "or",
+            },
+            text.opOr,
+          ),
+          el(
+            "button",
+            {
+              type: "button",
+              class: "btn btn-sm btn-link cb-cancel-add",
+              "data-action": "cancel-add",
+            },
+            text.cancel,
+          ),
+        );
+      }
+
+      return el(
+        "div",
+        { class: "cb-add" },
+        el(
+          "button",
+          {
+            type: "button",
+            class: "btn btn-sm btn-success",
+            "data-action": "add-check",
+          },
+          "+ " + text.addCheck,
+        ),
+        el(
+          "button",
+          {
+            type: "button",
+            class: "btn btn-sm btn-success",
+            "data-action": "add-expression",
+          },
+          "+ " + text.addExpression,
+        ),
+      );
+    }
+
+    renderCheck(node, path) {
       const text = this.config.text;
       return el(
         "div",
         { class: "cb-leaf", "data-path": path },
         el("span", { class: "cb-chip cb-chip-check", text: text.check }),
+        this.renderNot(node),
         el(
           "div",
           { class: "cb-leaf-fields" },
@@ -350,6 +484,15 @@
           text: "\u00d7",
         }),
       );
+    }
+
+    renderNot(node) {
+      const label = el("label", { class: "cb-not" });
+      const checkbox = el("input", { type: "checkbox", "data-role": "not" });
+      checkbox.checked = !!node.not;
+      label.appendChild(checkbox);
+      label.appendChild(document.createTextNode(" " + this.config.text.negate));
+      return label;
     }
 
     renderFieldSelect(node) {
@@ -428,41 +571,6 @@
         return fancy;
       }
       return select;
-    }
-
-    renderMatch(node) {
-      const text = this.config.text;
-      const select = el("select", {
-        class: "form-select cb-match",
-        "data-role": "match",
-      });
-
-      if (!node.match) {
-        const placeholder = el("option", { value: "", text: text.matchChoose });
-        placeholder.selected = true;
-        placeholder.disabled = true;
-        select.appendChild(placeholder);
-      }
-
-      [
-        ["all", text.matchAll],
-        ["any", text.matchAny],
-      ].forEach(([value, label]) => {
-        const option = el("option", { value, text: label });
-        if (value === node.match) option.selected = true;
-        select.appendChild(option);
-      });
-
-      return select;
-    }
-
-    renderNegate(node) {
-      const label = el("label", { class: "cb-negate" });
-      const checkbox = el("input", { type: "checkbox", "data-role": "negate" });
-      checkbox.checked = !!node.negate;
-      label.appendChild(checkbox);
-      label.appendChild(document.createTextNode(" " + this.config.text.negate));
-      return label;
     }
   }
 

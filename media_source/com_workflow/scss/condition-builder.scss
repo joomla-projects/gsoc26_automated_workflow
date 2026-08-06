@@ -1,23 +1,23 @@
 .condition-builder .cb-ui {
-  margin-top: 0.5rem;
+  margin-top: .5rem;
 }
 
-.cb-group {
-  border: 1px solid rgba(128, 128, 128, 0.35);
-  border-radius: 8px;
+.cb-expression {
   padding: 10px;
+  border: 1px solid rgba(128, 128, 128, .35);
+  border-radius: 8px;
 }
 
-.cb-group .cb-group {
+.cb-expression .cb-expression {
   border-left: 3px solid #2a7de1;
 }
 
-.cb-group-head {
+.cb-expression-head {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
   flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 10px;
 }
 
 .cb-list {
@@ -25,16 +25,16 @@
   flex-direction: column;
   gap: 8px;
   padding-left: 12px;
-  border-left: 2px solid rgba(128, 128, 128, 0.25);
+  border-left: 2px solid rgba(128, 128, 128, .25);
 }
 
 .cb-leaf {
   display: flex;
   align-items: center;
-  gap: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.35);
-  border-radius: 6px;
   padding: 8px;
+  border: 1px solid rgba(128, 128, 128, .35);
+  border-radius: 6px;
+  gap: 8px;
 }
 
 .cb-leaf-fields {
@@ -48,9 +48,9 @@
 .cb-leaf-fields .form-select,
 .cb-leaf-fields .form-control,
 .cb-leaf-fields joomla-field-fancy-select {
+  flex: 1;
   width: auto;
   min-width: 130px;
-  flex: 1;
 }
 
 .cb-match {
@@ -59,39 +59,54 @@
 }
 
 .cb-chip {
+  padding: 2px 8px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 2px 8px;
-  border-radius: 12px;
+  letter-spacing: .03em;
   white-space: nowrap;
+  border-radius: 12px;
 }
 
 .cb-chip-check {
-  background: rgba(42, 125, 225, 0.16);
   color: #2a7de1;
+  background: rgba(42, 125, 225, .16);
 }
 
-.cb-chip-group {
-  background: rgba(120, 90, 220, 0.18);
+.cb-chip-expression {
   color: #7a5adc;
+  background: rgba(120, 90, 220, .18);
 }
 
 .cb-band {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  color: rgba(128, 128, 128, 0.9);
-  padding: 1px 0;
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
 }
 
-.cb-negate {
+.cb-band .cb-op {
+  width: auto;
+  min-width: 90px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cb-not {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 13px;
+  gap: 4px;
   margin: 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cb-add-op {
+  align-items: center;
+}
+
+.cb-join-label {
+  font-size: 13px;
+  color: rgba(128, 128, 128, .95);
 }
 
 .cb-add {
@@ -101,10 +116,10 @@
 }
 
 .cb-empty {
-  font-size: 13px;
-  color: rgba(128, 128, 128, 0.9);
-  font-style: italic;
   padding: 4px 0;
+  font-size: 13px;
+  font-style: italic;
+  color: rgba(128, 128, 128, .9);
 }
 
 .cb-remove {
@@ -160,11 +175,11 @@
 .control-group.cb-delay-unit .control-label,
 .control-group.cb-cron .control-label {
   display: block;
-  width: 100%;
   float: none;
-  text-align: left;
-  margin: 0 0 4px;
+  width: 100%;
   padding: 0;
+  margin: 0 0 4px;
+  text-align: left;
 }
 
 .control-group.cb-rule-type .controls,
@@ -172,7 +187,7 @@
 .control-group.cb-delay-unit .controls,
 .control-group.cb-cron .controls {
   display: block;
-  width: 100%;
   float: none;
+  width: 100%;
   margin-left: 0;
 }

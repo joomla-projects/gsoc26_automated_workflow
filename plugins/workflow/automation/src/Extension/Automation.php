@@ -292,7 +292,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
             default   => null,
         };
 
-        return $interval ? $date->add($interval)->format('Y-m-d H:i:s') : null;
+        return $delay ? $date->add($delay)->format('Y-m-d H:i:s') : null;
     }
 
     private function computeEarliestNextTransitionAt(string $enteredAt, array $rules): ?string

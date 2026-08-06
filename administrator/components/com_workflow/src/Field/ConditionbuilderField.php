@@ -135,24 +135,25 @@ class ConditionbuilderField extends FormField
     private function getOperatorChoices(): array
     {
         $operatorLabels = [
-            'is'      => Text::_('COM_WORKFLOW_AUTOMATION_OP_IS'),
-            'is not'  => Text::_('COM_WORKFLOW_AUTOMATION_OP_IS_NOT'),
-            'in'      => Text::_('COM_WORKFLOW_AUTOMATION_OP_IN'),
-            'not in'  => Text::_('COM_WORKFLOW_AUTOMATION_OP_NOT_IN'),
-            'has'     => Text::_('COM_WORKFLOW_AUTOMATION_OP_HAS'),
-            'not has' => Text::_('COM_WORKFLOW_AUTOMATION_OP_NOT_HAS'),
-            'before'  => Text::_('COM_WORKFLOW_AUTOMATION_OP_BEFORE'),
-            'after'   => Text::_('COM_WORKFLOW_AUTOMATION_OP_AFTER'),
-            'on'      => Text::_('COM_WORKFLOW_AUTOMATION_OP_ON'),
-            'not on'  => Text::_('COM_WORKFLOW_AUTOMATION_OP_NOT_ON'),
+            'is'       => Text::_('COM_WORKFLOW_AUTOMATION_OP_IS'),
+            'is not'   => Text::_('COM_WORKFLOW_AUTOMATION_OP_IS_NOT'),
+            'in'       => Text::_('COM_WORKFLOW_AUTOMATION_OP_IN'),
+            'not in'   => Text::_('COM_WORKFLOW_AUTOMATION_OP_NOT_IN'),
+            'has any'  => Text::_('COM_WORKFLOW_AUTOMATION_OP_HAS_ANY'),
+            'has all'  => Text::_('COM_WORKFLOW_AUTOMATION_OP_HAS_ALL'),
+            'has none' => Text::_('COM_WORKFLOW_AUTOMATION_OP_HAS_NONE'),
+            'before'   => Text::_('COM_WORKFLOW_AUTOMATION_OP_BEFORE'),
+            'after'    => Text::_('COM_WORKFLOW_AUTOMATION_OP_AFTER'),
+            'on'       => Text::_('COM_WORKFLOW_AUTOMATION_OP_ON'),
+            'not on'   => Text::_('COM_WORKFLOW_AUTOMATION_OP_NOT_ON'),
         ];
 
         $operatorsByField = [
             'day_of_week'  => ['in', 'not in'],
             'date'         => ['after', 'before', 'on', 'not on'],
-            'tag'          => ['has', 'not has'],
+            'tag'          => ['has any', 'has all', 'has none'],
             'category'     => ['is', 'is not'],
-            'author_group' => ['has', 'not has'],
+            'author_group' => ['has any', 'has all', 'has none'],
         ];
 
         $allowed = $this->allowedFields();
@@ -290,19 +291,19 @@ class ConditionbuilderField extends FormField
             ? 'COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_FILTER'
             : 'COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_CONDITION';
         return [
-            'addCheck'    => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_CHECK'),
-            'addGroup'    => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_GROUP'),
-            'remove'      => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_REMOVE'),
-            'check'       => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_CHECK'),
-            'group'       => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_GROUP'),
-            'negate'      => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_NEGATE'),
-            'match'       => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_MATCH'),
-            'matchAll'    => Text::_('COM_WORKFLOW_AUTOMATION_MATCH_ALL'),
-            'matchAny'    => Text::_('COM_WORKFLOW_AUTOMATION_MATCH_ANY'),
-            'empty'       => Text::_($emptyKey),
-            'placeholder' => Text::_('JGLOBAL_TYPE_OR_SELECT_SOME_OPTIONS'),
-            'matchChoose' => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_MATCH_CHOOSE'),
-            'emptyGroup'  => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_GROUP'),
+            'addCheck'        => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_CHECK'),
+            'addExpression'   => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_EXPRESSION'),
+            'remove'          => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_REMOVE'),
+            'check'           => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_CHECK'),
+            'expression'      => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EXPRESSION'),
+            'negate'          => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_NEGATE'),
+            'joinWith'        => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_JOIN_WITH'),
+            'opAnd'           => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_OP_AND'),
+            'opOr'            => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_OP_OR'),
+            'cancel'          => Text::_('JCANCEL'),
+            'empty'           => Text::_($emptyKey),
+            'placeholder'     => Text::_('JGLOBAL_TYPE_OR_SELECT_SOME_OPTIONS'),
+            'emptyExpression' => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_EXPRESSION'),
         ];
     }
 
