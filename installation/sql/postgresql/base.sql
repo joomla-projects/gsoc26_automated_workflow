@@ -386,6 +386,7 @@ INSERT INTO "#__extensions" ("package_id", "name", "type", "element", "folder", 
 (0, 'plg_task_sessiongc', 'plugin', 'sessiongc', 'task', 0, 1, 1, 0, 1, '', '{}', '', 7, 0),
 (0, 'plg_task_sitestatus', 'plugin', 'sitestatus', 'task', 0, 1, 1, 0, 1, '', '{}', '', 8, 0),
 (0, 'plg_task_updatenotification', 'plugin', 'updatenotification', 'task', 0, 1, 1, 0, 1, '', '{}', '', 9, 0),
+(0, 'plg_task_workflowtransition', 'plugin', 'workflowtransition', 'task', 0, 1, 1, 0, 1, '', '{}', '', 10, 0),
 (0, 'plg_multifactorauth_totp', 'plugin', 'totp', 'multifactorauth', 0, 1, 1, 0, 1, '', '', '', 1, 0),
 (0, 'plg_multifactorauth_yubikey', 'plugin', 'yubikey', 'multifactorauth', 0, 1, 1, 0, 1, '', '', '', 2, 0),
 (0, 'plg_multifactorauth_webauthn', 'plugin', 'webauthn', 'multifactorauth', 0, 1, 1, 0, 1, '', '', '', 3, 0),
@@ -417,6 +418,7 @@ INSERT INTO "#__extensions" ("package_id", "name", "type", "element", "folder", 
 (0, 'plg_workflow_featuring', 'plugin', 'featuring', 'workflow', 0, 1, 1, 0, 1, '', '{}', '', 1, 0),
 (0, 'plg_workflow_notification', 'plugin', 'notification', 'workflow', 0, 1, 1, 0, 1, '', '{}', '', 2, 0),
 (0, 'plg_workflow_publishing', 'plugin', 'publishing', 'workflow', 0, 1, 1, 0, 1, '', '{}', '', 3, 0),
+(0, 'plg_workflow_automation', 'plugin', 'automation', 'workflow', 0, 1, 1, 0, 1, '', '{}', '', 4, 0),
 (0, 'plg_system_guidedtours', 'plugin', 'guidedtours', 'system', 0, 1, 1, 0, 1, '', '{}', '', 15, 0);
 
 -- Templates
@@ -1288,3 +1290,94 @@ INSERT INTO "#__workflow_transitions" ("id", "asset_id", "published", "ordering"
 (7, 64, 1, 7, 1, 'PUBLISH_AND_FEATURE', '', -1, 1, '{"publishing":"1","featuring":"1"}');
 
 SELECT setval('#__workflow_transitions_id_seq', 8, false);
+
+CREATE TABLE IF NOT EXISTS "#__workflow_transition_automation" (
+    "id" serial NOT NULL,
+    "transition_id" integer NOT NULL,
+    "published" smallint DEFAULT 0 NOT NULL,
+    "ordering" integer DEFAULT 0 NOT NULL,
+    "rule_type" varchar(20) DEFAULT 'delay' NOT NULL,
+    "delay_value" integer,
+    "delay_unit" varchar(10),
+    "cron_expression" varchar(100),
+    "item_filter" text,
+    "fire_condition" text,
+    "run_as_user_id" integer DEFAULT 0 NOT NULL,
+    "created" timestamp without time zone NOT NULL,
+    "created_by" integer DEFAULT 0 NOT NULL,
+    "modified" timestamp without time zone NOT NULL,
+    "modified_by" integer DEFAULT 0 NOT NULL,
+    PRIMARY KEY ("id")
+);
+
+CREATE INDEX "#__workflow_transition_automation_idx_transition" ON "#__workflow_transition_automation" ("transition_id");
+
+CREATE INDEX "#__workflow_transition_automation_idx_published" ON "#__workflow_transition_automation" ("published");
+
+CREATE INDEX "#__workflow_transition_automation_idx_run_as" ON "#__workflow_transition_automation" ("run_as_user_id");
+
+COMMENT ON COLUMN "#__workflow_transition_automation"."transition_id" IS 'Foreign Key to #__workflow_transitions.id';
+
+COMMENT ON COLUMN "#__workflow_transition_automation"."rule_type" IS 'delay or cron';
+
+COMMENT ON COLUMN "#__workflow_transition_automation"."delay_unit" IS 'minutes, hours, days, months';
+
+COMMENT ON COLUMN "#__workflow_transition_automation"."item_filter" IS 'JSON filter tree: which items this rule applies to (evaluated at selection)';
+
+COMMENT ON COLUMN "#__workflow_transition_automation"."fire_condition" IS 'JSON expression tree: gate evaluated live at fire time';
+
+COMMENT ON COLUMN "#__workflow_transition_automation"."run_as_user_id" IS 'User identity used to execute the transition';
+
+CREATE TABLE IF NOT EXISTS "#__workflow_automation_schedule" (
+    "id" serial NOT NULL,
+    "item_id" integer DEFAULT 0 NOT NULL,
+    "extension" varchar(50) NOT NULL,
+    "stage_id" integer NOT NULL,
+    "entered_at" timestamp without time zone NOT NULL,
+    "triggered_by" varchar(20) DEFAULT 'manual' NOT NULL,
+    "requires_intervention" smallint DEFAULT 0 NOT NULL,
+    PRIMARY KEY ("id"),
+    CONSTRAINT "#__workflow_automation_schedule_idx_item_extension" UNIQUE ("item_id", "extension")
+);
+
+CREATE INDEX "#__workflow_automation_schedule_idx_stage_entered" ON "#__workflow_automation_schedule" ("stage_id", "entered_at");
+
+CREATE INDEX "#__workflow_automation_schedule_idx_requires_intervention" ON "#__workflow_automation_schedule" ("requires_intervention");
+
+COMMENT ON COLUMN "#__workflow_automation_schedule"."item_id" IS 'Extension table id value';
+
+COMMENT ON COLUMN "#__workflow_automation_schedule"."stage_id" IS 'Foreign Key to #__workflow_stages.id';
+
+COMMENT ON COLUMN "#__workflow_automation_schedule"."entered_at" IS 'When the item arrived in stage_id';
+
+COMMENT ON COLUMN "#__workflow_automation_schedule"."triggered_by" IS 'Determine if a transition was triggered manually or by the automation';
+
+COMMENT ON COLUMN "#__workflow_automation_schedule"."requires_intervention" IS 'Set when an automated transition failed; excluded from the scheduler until an admin clears it';
+
+CREATE TABLE IF NOT EXISTS "#__workflow_automation_log" (
+    "id" serial NOT NULL,
+    "rule_id" integer,
+    "item_id" integer DEFAULT 0 NOT NULL,
+    "extension" varchar(50) NOT NULL,
+    "transition_id" integer NOT NULL,
+    "from_stage_id" integer DEFAULT 0 NOT NULL,
+    "to_stage_id" integer DEFAULT 0 NOT NULL,
+    "run_as_user_id" integer DEFAULT 0 NOT NULL,
+    "trigger_type" varchar(20) DEFAULT 'rule' NOT NULL,
+    "exit_code" smallint DEFAULT 0 NOT NULL,
+    "note" varchar(500),
+    "executed_at" timestamp without time zone NOT NULL,
+    PRIMARY KEY ("id")
+);
+
+CREATE INDEX "#__workflow_automation_log_idx_rule_id" ON "#__workflow_automation_log" ("rule_id");
+
+CREATE INDEX "#__workflow_automation_log_idx_item_id" ON "#__workflow_automation_log" ("item_id");
+
+CREATE INDEX "#__workflow_automation_log_idx_executed_at" ON "#__workflow_automation_log" ("executed_at");
+
+CREATE INDEX "#__workflow_automation_log_idx_exit_code" ON "#__workflow_automation_log" ("exit_code");
+
+COMMENT ON COLUMN "#__workflow_automation_log"."rule_id" IS 'Foreign Key to #__workflow_transition_automation.id';
+
+COMMENT ON COLUMN "#__workflow_automation_log"."exit_code" IS '0 ok, 1 permission denied, 2 invalid transition, 3 exception';

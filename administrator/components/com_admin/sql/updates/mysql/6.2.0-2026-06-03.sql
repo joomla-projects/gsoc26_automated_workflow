@@ -53,3 +53,11 @@ CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (
     KEY `idx_executed_at` (`executed_at`),
     KEY `idx_exit_code` (`exit_code`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
+
+INSERT INTO `#__extensions` (`package_id`, `name`, `type`, `element`, `folder`, `client_id`, `enabled`, `access`, `protected`, `locked`, `manifest_cache`, `params`, `custom_data`, `ordering`, `state`)
+SELECT 0, 'plg_task_workflowtransition', 'plugin', 'workflowtransition', 'task', 0, 1, 1, 0, 1, '', '{}', '', 10, 0
+WHERE NOT EXISTS (SELECT * FROM `#__extensions` e WHERE e.`type` = 'plugin' AND e.`element` = 'workflowtransition' AND e.`folder` = 'task' AND e.`client_id` = 0);
+
+INSERT INTO `#__extensions` (`package_id`, `name`, `type`, `element`, `folder`, `client_id`, `enabled`, `access`, `protected`, `locked`, `manifest_cache`, `params`, `custom_data`, `ordering`, `state`)
+SELECT 0, 'plg_workflow_automation', 'plugin', 'automation', 'workflow', 0, 1, 1, 0, 1, '', '{}', '', 4, 0
+WHERE NOT EXISTS (SELECT * FROM `#__extensions` e WHERE e.`type` = 'plugin' AND e.`element` = 'automation' AND e.`folder` = 'workflow' AND e.`client_id` = 0);
