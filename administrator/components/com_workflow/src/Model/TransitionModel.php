@@ -122,34 +122,33 @@ class TransitionModel extends AdminModel
         }
 
         if (!empty($item->id)) {
-            $db                        = $this->getDatabase();
-            $transitionAutomationQuery = $db->getQuery(true)
+            $db    = $this->getDatabase();
+            $query = $db->getQuery(true)
                 ->select($db->quoteName([
-                    'id',
-                    'published',
-                    'ordering',
                     'rule_type',
-                    'interval_value',
-                    'interval_unit',
+                    'delay_value',
+                    'delay_unit',
                     'cron_expression',
                     'run_as_user_id',
                     'item_filter',
                     'fire_condition',
-                ]))->from($db->quoteName('#__workflow_transition_automation'))
+                ]))
+                ->from($db->quoteName('#__workflow_transition_automation'))
                 ->where($db->quoteName('transition_id') . ' = :id')
-                ->order($db->quoteName('ordering') . ' ASC')
-                ->bind(':id', $item->id, ParameterType::INTEGER);
+                ->bind(':id', $item->id, ParameterType::INTEGER)
+                ->setLimit(1);
 
-            $rules = $db->setQuery($transitionAutomationQuery)->loadAssocList() ?: [];
+            $rule = $db->setQuery($query)->loadAssoc();
 
-            foreach ($rules as &$rule) {
-                [$rule['filter_match'], $rule['filter']]       = $this->parseExpressionJson($rule['item_filter'] ?? null);
-                [$rule['condition_match'], $rule['condition']] = $this->parseExpressionJson($rule['fire_condition'] ?? null);
+            if ($rule) {
+                $item->automation = [
+                    'automation_enabled' => 1,
+                    'run_as_user_id'     => (int) ($rule['run_as_user_id'] ?? 0),
+                    'automation_rules'   => $rule,
+                ];
+            } else {
+                $item->automation = ['automation_enabled' => 0, 'run_as_user_id' => 0, 'automation_rules' => []];
             }
-
-            unset($rule);
-
-            $item->automation = ['rules' => $rules];
         }
 
         return $item;
@@ -166,11 +165,18 @@ class TransitionModel extends AdminModel
      */
     public function save($data)
     {
-        // pull the rules out of the nested key
-        $automationRules = $data['automation']['rules'] ?? [];
+        // Pull automation data out. The transition-level toggle decides whether a rule is kept:
+        // when it is off, an empty rule clears any existing one.
+        $automationData    = $data['automation'] ?? [];
+        $automationEnabled = !empty($automationData['automation_enabled']);
+        $automationRule    = $automationEnabled ? ($automationData['automation_rules'] ?? []) : [];
         unset($data['automation']);
 
-        if (!$this->validateAutomation($automationRules)) {
+        if (!empty($automationRule)) {
+            $automationRule['run_as_user_id'] = (int) ($automationData['run_as_user_id'] ?? 0);
+        }
+
+        if (!$this->validateAutomation($automationRule)) {
             return false;
         }
 
@@ -226,7 +232,7 @@ class TransitionModel extends AdminModel
         }
 
         $pk = (int) $this->getState($this->getName() . '.id');
-        $this->saveAutomationRules($pk, $automationRules);
+        $this->saveAutomationRule($pk, $automationRule);
 
         return true;
     }
@@ -391,13 +397,13 @@ class TransitionModel extends AdminModel
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function saveAutomationRules(int $transitionId, array $rules): void
+    private function saveAutomationRule(int $transitionId, array $automationRule): void
     {
         $db   = $this->getDatabase();
         $user = Factory::getApplication()->getIdentity();
         $now  = Factory::getDate()->toSql();
 
-        // Replace-all: clear this transition's rules, then re-insert the submitted, enabled ones.
+        // Replace: clear this transition's rule, then insert the submitted one if there is content.
         // Wrapped in a transaction so a failure mid-save can't wipe the existing configuration.
         try {
             $db->transactionStart();
@@ -409,24 +415,19 @@ class TransitionModel extends AdminModel
                     ->bind(':id', $transitionId, ParameterType::INTEGER)
             )->execute();
 
-            foreach ($rules as $rule) {
-                // Skip rows the editor left disabled.
-                if (empty((int) ($rule['published'] ?? 0))) {
-                    continue;
-                }
-
+            if (!empty($automationRule)) {
                 $ruleRow = (object) [
                     'transition_id'   => $transitionId,
                     'published'       => 1,
-                    'ordering'        => (int) ($rule['ordering'] ?? 0),
-                    'rule_type'       => $rule['rule_type'] ?? 'interval',
-                    'interval_value'  => (int) ($rule['interval_value'] ?? 0),
-                    'interval_unit'   => $rule['interval_unit'] ?? 'minutes',
-                    'cron_expression' => $rule['cron_expression'] ?? '',
-                    'run_as_user_id'  => (int) ($rule['run_as_user_id'] ?? 0),
+                    'ordering'        => 0,
+                    'rule_type'       => $automationRule['rule_type'] ?? 'delay',
+                    'delay_value'     => (int) ($automationRule['delay_value'] ?? 0),
+                    'delay_unit'      => $automationRule['delay_unit'] ?? 'minutes',
+                    'cron_expression' => $automationRule['cron_expression'] ?? '',
+                    'run_as_user_id'  => (int) ($automationRule['run_as_user_id'] ?? 0),
                     'loop_mode'       => 0,
-                    'item_filter'     => $this->buildExpressionJson($rule['filter_match'] ?? 'all', $rule['filter'] ?? []),
-                    'fire_condition'  => $this->buildExpressionJson($rule['condition_match'] ?? 'all', $rule['condition'] ?? []),
+                    'item_filter'     => ($automationRule['item_filter'] ?? '') !== '' ? $automationRule['item_filter'] : null,
+                    'fire_condition'  => ($automationRule['fire_condition'] ?? '') !== '' ? $automationRule['fire_condition'] : null,
                     'created'         => $now,
                     'created_by'      => $user->id,
                     'modified'        => $now,
@@ -458,29 +459,24 @@ class TransitionModel extends AdminModel
      */
     private function validateAutomationRule(array $data): bool
     {
-        // Nothing to validate when automation is disabled.
-        if (empty((int) ($data['published'] ?? 0))) {
-            return true;
-        }
-
         $app      = Factory::getApplication();
-        $ruleType = $data['rule_type'] ?? 'interval';
+        $ruleType = $data['rule_type'] ?? 'delay';
 
-        if (!\in_array($ruleType, ['interval', 'cron'], true)) {
+        if (!\in_array($ruleType, ['delay', 'cron'], true)) {
             $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_RULE_TYPE'), 'error');
 
             return false;
         }
 
-        if ($ruleType === 'interval') {
-            if ((int) ($data['interval_value'] ?? 0) < 1) {
-                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_INTERVAL_VALUE'), 'error');
+        if ($ruleType === 'delay') {
+            if ((int) ($data['delay_value'] ?? 0) < 0) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_DELAY_VALUE'), 'error');
 
                 return false;
             }
 
-            if (!\in_array($data['interval_unit'] ?? '', ['minutes', 'hours', 'days', 'months'], true)) {
-                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_INTERVAL_UNIT'), 'error');
+            if (!\in_array($data['delay_unit'] ?? '', ['minutes', 'hours', 'days', 'months'], true)) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_DELAY_UNIT'), 'error');
 
                 return false;
             }
@@ -499,215 +495,22 @@ class TransitionModel extends AdminModel
         return true;
     }
 
-    private function validateAutomation(array $rules): bool
+    private function validateAutomation(array $automationRule): bool
     {
-        $app              = Factory::getApplication();
-        $missingRunAsUser = false;
-
-        foreach ($rules as $rule) {
-            if (empty((int) ($rule['published'] ?? 0))) {
-                continue;
-            }
-
-            if (!$this->validateAutomationRule($rule)) {
-                return false;
-            }
-
-            // Non-blocking: a rule with no run-as user can't execute
-            if ((int) ($rule['run_as_user_id'] ?? 0) === 0) {
-                $missingRunAsUser = true;
-            }
+        // No rule submitted (automation disabled or empty) is valid.
+        if (empty($automationRule)) {
+            return true;
         }
 
-        if ($missingRunAsUser) {
-            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_WARNING_NO_RUN_AS'), 'warning');
+        if (!$this->validateAutomationRule($automationRule)) {
+            return false;
+        }
+
+        // Non-blocking: a rule with no run-as user cannot execute.
+        if ((int) ($automationRule['run_as_user_id'] ?? 0) === 0) {
+            Factory::getApplication()->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_WARNING_NO_RUN_AS'), 'warning');
         }
 
         return true;
-    }
-
-    /**
-     * Maps a leaf field to the form input that carries its value.
-     *
-     * @var array<string, string>
-     * @since __DEPLOY_VERSION__
-     */
-    private const LEAF_VALUE_KEYS = [
-        'day_of_week'  => 'value_day_of_week',
-        'date'         => 'value_date',
-        'tag'          => 'value_tag',
-        'category'     => 'value_category',
-        'author_group' => 'value_author_group',
-    ];
-
-    /**
-     * Maps a leaf field to the form input that carries its operator.
-     *
-     * Operators are constrained per field (a tag list can't use a scalar comparison),
-     * so each field type gets its own showon-toggled operator input.
-     *
-     * @var array<string, string>
-     * @since __DEPLOY_VERSION__
-     */
-    private const LEAF_OPERATOR_KEYS = [
-        'day_of_week'  => 'operator_day_of_week',
-        'date'         => 'operator_date',
-        'tag'          => 'operator_tag',
-        'category'     => 'operator_category',
-        'author_group' => 'operator_author_group',
-    ];
-
-    /**
-     * Builds an expression-tree JSON string from a match mode and a flat list of leaf rows.
-     *
-     * @param string $match 'all' (AND) or 'any' (OR).
-     * @param array $leaves Submitted leaf rows (field/ operator / value).
-     *
-     * @return string|null JSON tree, or null when there are no usable leaves.
-     *
-     * @since __DEPLOY_VERSION__
-     */
-    private function buildExpressionJson(string $match, array $groups): ?string
-    {
-        $groupNodes = [];
-
-        foreach ($groups as $group) {
-            $leafNodes = $this->buildLeafNodes($group['conditions'] ?? []);
-
-            // A group with no usable leaves is dropped.
-            if (empty($leafNodes)) {
-                continue;
-            }
-
-            $groupNodes[] = [
-                'op'       => ($group['group_match'] ?? 'all') === 'any' ? 'or' : 'and',
-                'children' => $leafNodes,
-            ];
-        }
-
-        if (empty($groupNodes)) {
-            return null;
-        }
-
-        return json_encode([
-            'op'       => $match === 'any' ? 'or' : 'and',
-            'children' => $groupNodes,
-        ]);
-    }
-
-    /**
-     * Turns submitted leaf rows into expression-tree leaf nodes.
-     *
-     * @param   array  $leaves  Submitted leaf rows.
-     *
-     * @return  array  Leaf nodes.
-     *
-     * @since   __DEPLOY_VERSION__
-     */
-    private function buildLeafNodes(array $leaves): array
-    {
-        $leafNodes = [];
-
-        foreach ($leaves as $leaf) {
-            $field = trim((string) ($leaf['field'] ?? ''));
-
-            if ($field === '') {
-                continue;
-            }
-
-            // The operator lives in the input matching the selected field.
-            $operatorKey = self::LEAF_OPERATOR_KEYS[$field] ?? 'operator';
-            $operator    = trim((string) ($leaf[$operatorKey] ?? ''));
-
-            if ($operator === '') {
-                continue;
-            }
-
-            $valueKey = self::LEAF_VALUE_KEYS[$field] ?? 'value';
-            $value    = $leaf[$valueKey] ?? '';
-
-            if ($value === '' || $value === []) {
-                continue;
-            }
-
-            $leafNodes[] = [
-                'field'    => $field,
-                'operator' => $operator,
-                'value'    => $value,
-            ];
-        }
-
-        return $leafNodes;
-    }
-
-
-    /**
-     * Splits a stored expression-tree JSON back into a match mode and the group rows for the form.
-     *
-     * The builder renders two levels (an outer match over groups, each group holding leaves), so
-     * anything nested deeper is skipped rather than breaking the form.
-     *
-     * @param   string|null  $json  The stored JSON tree.
-     *
-     * @return  array  A [string $match, array $groups] pair.
-     *
-     * @since   __DEPLOY_VERSION__
-     */
-    private function parseExpressionJson(?string $json): array
-    {
-        if (empty($json)) {
-            return ['all', []];
-        }
-
-        $tree = json_decode($json, true);
-
-        if (!\is_array($tree)) {
-            return ['all', []];
-        }
-
-        $match  = ($tree['op'] ?? 'and') === 'or' ? 'any' : 'all';
-        $groups = [];
-
-        foreach ($tree['children'] ?? [] as $groupNode) {
-            $leaves = [];
-
-            foreach ($groupNode['children'] ?? [] as $leafNode) {
-                // Skip anything deeper than two levels — the builder only shows leaves in a group.
-                if (!isset($leafNode['field'])) {
-                    continue;
-                }
-
-                $leaves[] = $this->parseLeaf($leafNode);
-            }
-
-            $groups[] = [
-                'group_match' => ($groupNode['op'] ?? 'and') === 'or' ? 'any' : 'all',
-                'conditions'  => $leaves,
-            ];
-        }
-
-        return [$match, $groups];
-    }
-
-    /**
-     * Turns a stored leaf node into a form leaf row (value written to the typed input for its field).
-     *
-     * @param   array  $leafNode  A stored leaf node.
-     *
-     * @return  array  A form leaf row.
-     *
-     * @since   __DEPLOY_VERSION__
-     */
-    private function parseLeaf(array $leafNode): array
-    {
-        $field       = (string) ($leafNode['field'] ?? '');
-        $valueKey    = self::LEAF_VALUE_KEYS[$field] ?? 'value';
-        $operatorKey = self::LEAF_OPERATOR_KEYS[$field] ?? 'operator';
-
-        return [
-            'field'      => $field,
-            $operatorKey => $leafNode['operator'] ?? 'is',
-            $valueKey    => $leafNode['value'] ?? '',
-        ];
     }
 }

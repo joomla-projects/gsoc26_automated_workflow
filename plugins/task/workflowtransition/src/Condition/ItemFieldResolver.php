@@ -105,7 +105,7 @@ final class ItemFieldResolver
                 return $this->loadAuthorGroupIds($itemId, $extension);
 
             default:
-                return null;
+                throw new ConditionEvaluationException('Unknown condition field "' . $fieldName . '".');
         }
     }
 

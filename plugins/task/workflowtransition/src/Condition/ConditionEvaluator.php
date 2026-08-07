@@ -15,34 +15,38 @@ namespace Joomla\Plugin\Task\WorkflowTransition\Condition;
 // phpcs:enable PSR1.Files.SideEffects
 
 /**
- * Evaluates a recursive boolean expression tree used by automation filters and conditions
- *
- * Field values are supplied by a resolver callback, so this class has no database or
- * Joomla dependency and can be unit-tested on its own.
+ * Evaluates a stored automation expression against one item's field values.
  *
  * Node shapes:
- * group: { "op": "and" | "or" | "not", "children": [ ...nodes ] }
- * leaf: { "field": string, "operator": string, "value": mixed }
+ *   check:      { "field": string, "operator": string, "value": mixed, "not": true? }
+ *   expression: { "items": [ ...nodes ], "ops": [ "and"|"or", ... ], "not": true? }
  *
- * @since __DEPLOY_VERSION__
+ * ops always holds exactly one connector fewer than items. Evaluation runs top to
+ * bottom: the running result of the rows so far is combined with the next row
+ * through the connector between them, so "A or B and C" means "(A or B) and C".
+ * Nested expressions are the brackets.
+ *
+ * Field values are supplied by a resolver callback, so this class has no database
+ * or Joomla dependency. An empty stored expression means "no restriction" and is
+ * true; anything malformed throws a ConditionEvaluationException rather than
+ * defaulting, so broken rules surface instead of silently passing or failing.
+ *
+ * @since  __DEPLOY_VERSION__
  */
 final class ConditionEvaluator
 {
     /**
-     * Evaluates a stored expression free in JSON form.
+     * Evaluates a stored expression in JSON form.
      *
-     * An empty tree means "no restriction" and returns true. A malformed tree fails
-     * closed (returns false) so a broken filter never scopes in unintended items and a
-     * broken condition never fires unexpectedly.
+     * @param   string|null  $expressionJson  The stored JSON tree, or null/empty for "no restriction".
+     * @param   callable     $resolveField    fn(string $fieldName): mixed - the item's value for a field.
      *
-     * @param string|null $expressionJson The stored JSON tree, or null/empty.
-     * @param callable $resolveField fn(string $fieldName): mixed - the item's value for a field
+     * @return  boolean
      *
-     * @return boolean
+     * @throws  ConditionEvaluationException  When the stored expression is malformed.
      *
-     * @since __DEPLOY_VERSION__
+     * @since   __DEPLOY_VERSION__
      */
-
     public function evaluate(?string $expressionJson, callable $resolveField): bool
     {
         if ($expressionJson === null || trim($expressionJson) === '') {
@@ -50,215 +54,259 @@ final class ConditionEvaluator
         }
 
         $decodedTree = json_decode($expressionJson, true);
+
         if (!\is_array($decodedTree)) {
-            return false;
+            throw new ConditionEvaluationException('The stored condition is not valid JSON: ' . json_last_error_msg());
         }
 
         return $this->evaluateNode($decodedTree, $resolveField);
     }
 
     /**
-     * Evaluate a single already-decoded node. Public so unit tests can pass array trees
-     * directly
+     * Evaluates one already-decoded node. Public so unit tests can pass array trees directly.
      *
-     * @param array $node A group or leaf node.
-     * @param callable $resolveField The field resolver.
+     * @param   array     $node          A check or expression node.
+     * @param   callable  $resolveField  The field resolver.
      *
-     * @return boolean
+     * @return  boolean
      *
-     * @since __DEPLOY_VERSION__
+     * @throws  ConditionEvaluationException
+     *
+     * @since   __DEPLOY_VERSION__
      */
     public function evaluateNode(array $node, callable $resolveField): bool
     {
-        // A node with an "op" key is a group that combines its children.
-        if (isset($node['op'])) {
-            $childNodes = $node['children'] ?? [];
-
-            switch (strtolower((string) $node['op'])) {
-                case 'and':
-                    foreach ($childNodes as $childNode) {
-                        if (!$this->evaluateNode($childNode, $resolveField)) {
-                            return false;
-                        }
-                    }
-
-                    return true;
-
-                case 'or':
-                    foreach ($childNodes as $childNode) {
-                        if ($this->evaluateNode($childNode, $resolveField)) {
-                            return true;
-                        }
-                    }
-
-                    return false;
-
-                case 'not':
-                    foreach ($childNodes as $childNode) {
-                        if ($this->evaluateNode($childNode, $resolveField)) {
-                            return false;
-                        }
-                    }
-
-                    return true;
-
-                default:
-                    return false;
-            }
+        if (\array_key_exists('items', $node)) {
+            return $this->evaluateExpression($node, $resolveField);
         }
-        // Otherwise it is a leaf: a single field/operator/value comparison.
-        return $this->evaluateLeaf($node, $resolveField);
+
+        if (\array_key_exists('field', $node)) {
+            return $this->evaluateCheck($node, $resolveField);
+        }
+
+        if (\array_key_exists('op', $node) || \array_key_exists('children', $node)) {
+            throw new ConditionEvaluationException(
+                'The condition is stored in the retired group format; open the rule in the builder and save it again.'
+            );
+        }
+
+        throw new ConditionEvaluationException('A condition node is neither a check nor an expression: ' . json_encode($node));
     }
 
     /**
-     * Evaluates a leaf node by resolving the item's value for the field and comparing it
+     * Evaluates an expression: its rows combined top to bottom through the connectors.
      *
-     * @param array $leafNode A leaf node.
-     * @param callable $resolveField  The field resolver.
+     * Every row is evaluated even when the running result is already decided, so a
+     * malformed row always surfaces instead of hiding behind short-circuiting.
      *
-     * @return boolean
+     * @param   array     $expressionNode  The expression node.
+     * @param   callable  $resolveField    The field resolver.
      *
-     * @since __DEPLOY_VERSION__
+     * @return  boolean
+     *
+     * @throws  ConditionEvaluationException
+     *
+     * @since   __DEPLOY_VERSION__
      */
-    private function evaluateLeaf(array $leafNode, callable $resolveField): bool
+    private function evaluateExpression(array $expressionNode, callable $resolveField): bool
     {
-        $fieldName = (string) ($leafNode['field'] ?? '');
+        $items      = $expressionNode['items'];
+        $connectors = $expressionNode['ops'] ?? null;
 
-        if ($fieldName === '') {
-            return false;
+        if (!\is_array($items) || $items === []) {
+            throw new ConditionEvaluationException('An expression has no items; empty expressions must be pruned before saving.');
         }
 
-        $operatorName  = strtolower((string) ($leafNode['operator'] ?? ''));
-        $expectedValue = $leafNode['value'] ?? null;
-        $actualValue   = $resolveField($fieldName);
+        if (!\is_array($connectors) || \count($connectors) !== \count($items) - 1) {
+            throw new ConditionEvaluationException(\sprintf(
+                'An expression has %d items but %s connectors; expected exactly %d.',
+                \count($items),
+                \is_array($connectors) ? \count($connectors) : 'no',
+                \count($items) - 1
+            ));
+        }
 
-        return $this->compare($actualValue, $operatorName, $expectedValue);
+        $result = $this->evaluateNode($items[0], $resolveField);
+
+        foreach ($connectors as $index => $connector) {
+            $nextResult = $this->evaluateNode($items[$index + 1], $resolveField);
+
+            $result = match ($connector) {
+                'and'   => $result && $nextResult,
+                'or'    => $result || $nextResult,
+                default => throw new ConditionEvaluationException(
+                    'Unknown connector "' . $connector . '" in an expression; expected "and" or "or".'
+                ),
+            };
+        }
+
+        return ($expressionNode['not'] ?? false) === true ? !$result : $result;
+    }
+
+    /**
+     * Evaluates a single check by resolving the item's value and comparing it.
+     *
+     * @param   array     $checkNode     The check node.
+     * @param   callable  $resolveField  The field resolver.
+     *
+     * @return  boolean
+     *
+     * @throws  ConditionEvaluationException
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function evaluateCheck(array $checkNode, callable $resolveField): bool
+    {
+        $fieldName    = (string) ($checkNode['field'] ?? '');
+        $operatorName = strtolower(trim((string) ($checkNode['operator'] ?? '')));
+
+        if ($fieldName === '') {
+            throw new ConditionEvaluationException('A check has no field.');
+        }
+
+        if ($operatorName === '') {
+            throw new ConditionEvaluationException('The check on "' . $fieldName . '" has no operator.');
+        }
+
+        if (!\array_key_exists('value', $checkNode)) {
+            throw new ConditionEvaluationException('The check on "' . $fieldName . '" has no value.');
+        }
+
+        $result = $this->compare($resolveField($fieldName), $operatorName, $checkNode['value'], $fieldName);
+
+        return ($checkNode['not'] ?? false) === true ? !$result : $result;
     }
 
     /**
      * Applies a single comparison operator.
      *
-     * @param mixed $actualValue The item's value (may be scalar or a list, e.g. tags).
-     * @param string $operatorName One of: is, is not, in, not in, has, not has, before,
-     * after, on, not no.
-     * @param mixed $expectedValue The value stored on the rule.
+     * Types are compared like for like: a list is never silently narrowed to its
+     * first element. Widening a single value into a one-element list (for the
+     * membership operators) is allowed because it loses nothing.
      *
-     * @return boolean
+     * @param   mixed   $actualValue    The item's value.
+     * @param   string  $operatorName   The comparison operator.
+     * @param   mixed   $expectedValue  The value stored on the rule.
+     * @param   string  $fieldName      The field name, for error messages.
      *
-     * @since __DEPLOY_VERSION__
+     * @return  boolean
+     *
+     * @throws  ConditionEvaluationException
+     *
+     * @since   __DEPLOY_VERSION__
      */
-    private function compare($actualValue, string $operatorName, $expectedValue): bool
+    private function compare($actualValue, string $operatorName, $expectedValue, string $fieldName): bool
     {
         switch ($operatorName) {
             case 'is':
-            case 'eq':
-                return (string) $this->firstScalar($actualValue) === (string) $this->firstScalar($expectedValue);
+                return $this->asScalarString($actualValue, $fieldName) === $this->asScalarString($expectedValue, $fieldName);
 
             case 'is not':
-            case 'neq':
-                return (string) $this->firstScalar($actualValue) !== (string) $this->firstScalar($expectedValue);
+                return !$this->compare($actualValue, 'is', $expectedValue, $fieldName);
 
             case 'in':
-                return \in_array((string) $this->firstScalar($actualValue), $this->toStringList($expectedValue), true);
+                return \in_array($this->asScalarString($actualValue, $fieldName), $this->asStringList($expectedValue), true);
 
             case 'not in':
-                return !\in_array((string) $this->firstScalar($actualValue), $this->toStringList($expectedValue), true);
+                return !$this->compare($actualValue, 'in', $expectedValue, $fieldName);
 
-            case 'has':
-                // the item's value is a list (tags, groups); true if it contains any wanted value.
-                $actualValues = $this->toStringList($actualValue);
+            case 'has any':
+                return array_intersect($this->asStringList($actualValue), $this->asStringList($expectedValue)) !== [];
 
-                foreach ($this->toStringList($expectedValue) as $wantedValue) {
-                    if (\in_array($wantedValue, $actualValues, true)) {
-                        return true;
-                    }
-                }
+            case 'has all':
+                return array_diff($this->asStringList($expectedValue), $this->asStringList($actualValue)) === [];
 
-                return false;
-            case 'not has':
-                // Negation of "has": the list must contain none of the wanted values.
-                return !$this->compare($actualValue, 'has', $expectedValue);
+            case 'has none':
+                return !$this->compare($actualValue, 'has any', $expectedValue, $fieldName);
 
             case 'before':
-                return $this->toTimestamp($actualValue) < $this->toTimestamp($expectedValue);
+                return $this->toTimestamp($actualValue, $fieldName) < $this->toTimestamp($expectedValue, $fieldName);
 
             case 'after':
-                return $this->toTimestamp($actualValue) > $this->toTimestamp($expectedValue);
+                return $this->toTimestamp($actualValue, $fieldName) > $this->toTimestamp($expectedValue, $fieldName);
 
             case 'on':
-                // Dates compare at calendar-day granularity: the resolver returns a full
-                // datetime while the form submits Y-m-d, so comparing the raw values would
-                // never match.
-                return $this->toDateString($actualValue) === $this->toDateString($expectedValue);
+                // Dates compare at calendar-day granularity: the resolver returns a
+                // full datetime while the form submits Y-m-d.
+                return gmdate('Y-m-d', $this->toTimestamp($actualValue, $fieldName))
+                    === gmdate('Y-m-d', $this->toTimestamp($expectedValue, $fieldName));
 
             case 'not on':
-                return !$this->compare($actualValue, 'on', $expectedValue);
+                return !$this->compare($actualValue, 'on', $expectedValue, $fieldName);
 
             default:
-                return false;
+                throw new ConditionEvaluationException('Unknown operator "' . $operatorName . '" on the "' . $fieldName . '" check.');
         }
     }
 
     /**
-     * Returns the first element if given a list, otherwise the value itself.
-     * Lets scalar operators (is/in) work even if a resolver hands back a single-item array
+     * Asserts a value is a single scalar and returns it as a string.
      *
-     * @param mixed $value A scalar or a list.
+     * @param   mixed   $value      The value to check.
+     * @param   string  $fieldName  The field name, for error messages.
      *
-     * @return mixed
+     * @return  string
      *
-     * @since __DEPLOY_VERSION__
+     * @throws  ConditionEvaluationException  When the value is a list or missing.
+     *
+     * @since   __DEPLOY_VERSION__
      */
-    private function firstScalar($value)
+    private function asScalarString($value, string $fieldName): string
     {
-        return \is_array($value) ? reset($value) : $value;
+        if (\is_array($value)) {
+            throw new ConditionEvaluationException(
+                'The "' . $fieldName . '" check expected a single value but got a list; use a membership operator instead.'
+            );
+        }
+
+        if ($value === null) {
+            throw new ConditionEvaluationException('The "' . $fieldName . '" check has no value to compare.');
+        }
+
+        return (string) $value;
     }
 
     /**
-     * Normalizes any value into a list of strings, so membership checks compare like with like
+     * Normalises a value into a list of strings. A single value widens to a
+     * one-element list; an existing list keeps every element.
      *
-     * @param mixed $value A scalar or a list.
+     * @param   mixed  $value  A scalar or a list.
      *
-     * @return string[]
+     * @return  string[]
      *
-     * @since __DEPLOY_VERSION__
+     * @since   __DEPLOY_VERSION__
      */
-    private function toStringList($value): array
+    private function asStringList($value): array
     {
         return array_map('strval', array_values((array) $value));
     }
 
     /**
-     * Converts a date string or numeric timestamp into a Unix timestamp for date comparisons.
+     * Parses a datetime string into a Unix timestamp, failing loudly on garbage.
      *
-     * @param mixed $value A datetime string or numeric timestamp.
+     * @param   mixed   $value      The datetime string.
+     * @param   string  $fieldName  The field name, for error messages.
      *
-     * @return integer
+     * @return  integer
      *
-     * @since __DEPLOY_VERSION__
+     * @throws  ConditionEvaluationException  When the value cannot be parsed.
+     *
+     * @since   __DEPLOY_VERSION__
      */
-    private function toTimestamp($value): int
+    private function toTimestamp($value, string $fieldName): int
     {
-        if (is_numeric($value)) {
-            return (int) $value;
+        if (\is_array($value)) {
+            throw new ConditionEvaluationException('The "' . $fieldName . '" check expected a date but got a list.');
         }
 
         $parsedTimestamp = strtotime((string) $value);
 
-        return $parsedTimestamp === false ? 0 : $parsedTimestamp;
-    }
+        if ($parsedTimestamp === false) {
+            throw new ConditionEvaluationException(
+                'Cannot parse "' . $value . '" as a date/time on the "' . $fieldName . '" check.'
+            );
+        }
 
-    /**
-     * Reduces a datetime to its calendar day, so date equality ignores the time part.
-     *
-     * @param mixed $value A datetime string or numeric timestamp.
-     *
-     * @return string The calendar day as Y-m-d.
-     *
-     * @since __DEPLOY_VERSION__
-     */
-    private function toDateString($value): string
-    {
-        return gmdate('Y-m-d', $this->toTimestamp($value));
+        return $parsedTimestamp;
     }
 }

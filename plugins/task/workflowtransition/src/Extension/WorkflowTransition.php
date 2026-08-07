@@ -23,6 +23,7 @@ use Joomla\Component\Scheduler\Administrator\Traits\TaskPluginTrait;
 use Joomla\Database\DatabaseAwareTrait;
 use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
+use Joomla\Plugin\Task\WorkflowTransition\Condition\ConditionEvaluationException;
 use Joomla\Plugin\Task\WorkflowTransition\Condition\ConditionEvaluator;
 use Joomla\Plugin\Task\WorkflowTransition\Condition\ItemFieldResolver;
 use Joomla\Plugin\Task\WorkflowTransition\Dto\DueAutomation;
@@ -122,7 +123,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $failures           = [];
 
         foreach ($candidatesByItem as $itemCandidates) {
-            $winningRule = $this->selectRuleForItem($itemCandidates, $nowDateTime, $conditionEvaluator, $itemFieldResolver);
+            $winningRule = $this->selectRuleForItem($itemCandidates, $nowDateTime, $conditionEvaluator, $itemFieldResolver, $failures);
 
             if ($winningRule !== null) {
                 $this->fireRule($winningRule, $app, $failures);
@@ -164,8 +165,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 $db->quoteName('wta.transition_id'),
                 $db->quoteName('wt.from_stage_id'),
                 $db->quoteName('wt.to_stage_id'),
-                $db->quoteName('wta.interval_value'),
-                $db->quoteName('wta.interval_unit'),
+                $db->quoteName('wta.delay_value'),
+                $db->quoteName('wta.delay_unit'),
                 $db->quoteName('wta.rule_type'),
                 $db->quoteName('wta.cron_expression'),
                 $db->quoteName('wta.item_filter'),
@@ -232,15 +233,15 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         }
 
         $date     = new \DateTime($enteredAt, new \DateTimeZone('UTC'));
-        $interval = match ($rule->interval_unit) {
-            'minutes' => new \DateInterval('PT' . $rule->interval_value . 'M'),
-            'hours'   => new \DateInterval('PT' . $rule->interval_value . 'H'),
-            'days'    => new \DateInterval('P' . $rule->interval_value . 'D'),
-            'months'  => new \DateInterval('P' . $rule->interval_value . 'M'),
+        $delay    = match ($rule->delay_unit) {
+            'minutes' => new \DateInterval('PT' . $rule->delay_value . 'M'),
+            'hours'   => new \DateInterval('PT' . $rule->delay_value . 'H'),
+            'days'    => new \DateInterval('P' . $rule->delay_value . 'D'),
+            'months'  => new \DateInterval('P' . $rule->delay_value . 'M'),
             default   => null,
         };
 
-        return $interval ? $date->add($interval) : null;
+        return $delay ? $date->add($delay) : null;
     }
 
     /**
@@ -378,7 +379,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         array $itemCandidates,
         \DateTime $nowDateTime,
         ConditionEvaluator $conditionEvaluator,
-        ItemFieldResolver $itemFieldResolver
+        ItemFieldResolver $itemFieldResolver,
+        array &$failures
     ): ?object {
         $firstCandidate = $itemCandidates[0];
         $scheduleId     = (int) $firstCandidate->schedule_id;
@@ -404,14 +406,23 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 continue;
             }
 
-            // Due, but does the rule's filter scope in this item at all?
-            if (!$conditionEvaluator->evaluate($candidate->item_filter, $fieldResolver)) {
-                continue;
-            }
+            // Due, but does the rule's filter scope in this item at all? A rule whose
+            // stored expression cannot be evaluated is reported as a failure and
+            // skipped, never silently treated as passing or failing.
+            try {
+                if (!$conditionEvaluator->evaluate($candidate->item_filter, $fieldResolver)) {
+                    continue;
+                }
 
-            // Due and in scope, but is the live condition satisfied right now?
-            if (!$conditionEvaluator->evaluate($candidate->fire_condition, $fieldResolver)) {
-                $hasConditionBlocked = true;
+                // Due and in scope, but is the live condition satisfied right now?
+                if (!$conditionEvaluator->evaluate($candidate->fire_condition, $fieldResolver)) {
+                    $hasConditionBlocked = true;
+
+                    continue;
+                }
+            } catch (ConditionEvaluationException $invalidCondition) {
+                $failures[] = 'Item ' . $candidate->item_id . ' (rule ' . $candidate->rule_id . '): invalid condition: '
+                    . $invalidCondition->getMessage();
 
                 continue;
             }
