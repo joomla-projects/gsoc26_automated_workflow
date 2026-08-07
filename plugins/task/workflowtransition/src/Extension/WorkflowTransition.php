@@ -35,8 +35,8 @@ use Joomla\Plugin\Task\WorkflowTransition\Dto\DueAutomation;
  * Scheduler task plugin that fires automated workflow transitions.
  *
  * When the Joomla Scheduler runs this task, it queries workflow_automation_schedule
- * for items whose next_transition_at deadline has passed, then fires the appropriate
- * workflow transition for each one using Joomla's existing transition engine.
+ * for items sitting in stages that have automation, works out live which of them are due,
+ * then fires the appropriate * workflow transition for each one using Joomla's existing transition engine.
  *
  * @since __DEPLOY_VERSION__
  */
@@ -55,6 +55,19 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             'method'          => 'fireOverdueTransitions',
         ],
     ];
+
+    /**
+     * How many (item, rule) rows to consider in one run.
+     *
+     * Without a stored deadline every item in an automated stage is a candidate, so the batch
+     * is bounded to run predictable. Rows are ordered oldest-entered first, so a backlog
+     * drains steadily instead of starving the items that have waited longest.
+     *
+     * @var integer
+     * @since __DEPLOY_VERSION__
+     */
+    private const MAX_CANDIDATES_PER_RUN = 500;
+
 
     /**
      * @var boolean
@@ -104,7 +117,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     {
         $now         = Factory::getDate()->toSql();
         $nowDateTime = new \DateTime($now, new \DateTimeZone('UTC'));
-        $candidates  = $this->fetchOverdueCandidates($now);
+        $candidates  = $this->fetchOverdueCandidates();
 
         if (empty($candidates)) {
             return TaskStatus::OK;
@@ -146,16 +159,17 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * Fetches the automation rules that are due to be considered for their items this run.
      *
      * Joins the schedule, transition, and rule tables so each row carries both the item's
-     * schedule data and a rule that could fire it. The WHERE clause uses next_transition_at
-     * for a fast indexed scan and skips items already flagged for manual intervention.
+     * schedule data and a rule that could fire it. Nothing is filtered by time here: whether a
+     * rule is due is worked out live from entered_at, because a stored deadline goes stale the
+     * moment a rule, an item, or a stage's automation changes. Rows are taken oldest first and
+     * capped, so a large backlog is worked through over successive runs rather than in one.
      *
-     * @param   string  $now  Current datetime in SQL format.
      *
      * @return  DueAutomation[]
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function fetchOverdueCandidates(string $now): array
+    private function fetchOverdueCandidates(): array
     {
         $db = $this->getDatabase();
 
@@ -189,47 +203,16 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 $db->quoteName('#__workflow_transition_automation', 'wta'),
                 $db->quoteName('wta.transition_id') . ' = ' . $db->quoteName('wt.id')
             )
-            ->where($db->quoteName('was.next_transition_at') . ' <= :now')
             ->where($db->quoteName('was.requires_intervention') . ' = 0')
             ->where($db->quoteName('wta.published') . ' = 1')
-
-            ->bind(':now', $now)
+            ->order($db->quoteName('was.entered_at') . ' ASC')
             ->order($db->quoteName('wta.ordering') . ' ASC')
-            ->setLimit(50);
+            ->setLimit(self::MAX_CANDIDATES_PER_RUN);
 
         return array_map(
             [DueAutomation::class, 'fromRow'],
             $db->setQuery($overduePairsQuery)->loadObjectList() ?: []
         );
-    }
-
-    /**
-     * Corrects a stale next_transition_at value in the schedule table.
-     *
-     * Called when next_transition_at <= NOW() brought an item into the batch but the per-rule deadline computation shows it is not yet due. The stored
-     * value was outdated; writing the real deadline prevents the scheduler
-     * from re-fetching the same item on every run until the rule actually fires.
-     *
-     * @param integer $scheduleId The workflow_automation_schedule row.ID
-     * @param \DateTime $deadline The correct next deadline for this rule.
-     *
-     * @return void
-     *
-     * @since __DEPLOY_VERSION__
-     */
-    private function rescheduleItem(int $scheduleId, \DateTime $deadline): void
-    {
-        $db          = $this->getDatabase();
-        $nextRunTime = $deadline->format('Y-m-d H:i:s');
-
-        $query = $db->getQuery(true)
-            ->update($db->quoteName('#__workflow_automation_schedule'))
-            ->set($db->quoteName('next_transition_at') . ' = :nextRunTime')
-            ->where($db->quoteName('id') . ' =:id')
-            ->bind(':nextRunTime', $nextRunTime)
-            ->bind(':id', $scheduleId, ParameterType::INTEGER);
-
-        $db->setQuery($query)->execute();
     }
 
     /**
@@ -295,8 +278,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * Flags an item as needing manual intervention after its transition failed.
      *
-     * next_transition_at is intentionally left untouched, clearing requires_intervention
-     * later makes the still-overdue item eligible again without a re-save
+     * Clearing requires_intervention later makes the item eligible again on the next run,
+     * because its due-ness is recomputed from entered_at rather than read from a stored value.
      *
      * @param integer $scheduleId The workflow_automation_schedule row ID.
      *
@@ -321,9 +304,9 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * Considers every candidate rule for the item: it must be past its own deadline, its
      * filter must scope the item in, and its live condition must currently hold. The highest
-     * priority survivor (lowest ordering) wins. If nothing fires, the stored deadline is
-     * corrected forward — unless a rule is only waiting on its condition, in which case the
-     * schedule is left so the item is re-checked next run.
+     * priority survivor (lowest ordering) wins. When nothing fires there is nothing to record:
+     * the next run recomputes from entered_at and reaches the same conclusion, or a different
+     * one if the rule or the item changed in the meantime.
      *
      * @param   object[]            $itemCandidates      Candidate rows for a single item.
      * @param   \DateTime           $nowDateTime         Current time (UTC).
@@ -342,12 +325,9 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         array &$failures
     ): ?object {
         $firstCandidate = $itemCandidates[0];
-        $scheduleId     = (int) $firstCandidate->schedule_id;
         $fieldResolver  = $itemFieldResolver->forItem((int) $firstCandidate->item_id, $firstCandidate->extension);
 
         $eligibleRules       = [];
-        $hasConditionBlocked = false;
-        $earliestFutureDue   = null;
 
         foreach ($itemCandidates as $candidate) {
             $deadline = DeadlineCalculator::forRule($candidate->entered_at, $candidate);
@@ -356,12 +336,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 continue;
             }
 
-            // Not due yet by this rule's own timing: track the soonest future deadline.
+            // Not due yet by this rule's own timing.
             if ($deadline > $nowDateTime) {
-                if ($earliestFutureDue === null || $deadline < $earliestFutureDue) {
-                    $earliestFutureDue = $deadline;
-                }
-
                 continue;
             }
 
@@ -375,8 +351,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
                 // Due and in scope, but is the live condition satisfied right now?
                 if (!$conditionEvaluator->evaluate($candidate->fire_condition, $fieldResolver)) {
-                    $hasConditionBlocked = true;
-
                     continue;
                 }
             } catch (ConditionEvaluationException $invalidCondition) {
@@ -396,12 +370,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 static fn (object $a, object $b): int => [(int) $a->ordering, (int) $a->rule_id] <=> [(int) $b->ordering, (int) $b->rule_id]
             );
             return $eligibleRules[0];
-        }
-
-        // Nothing fires this run. Only push the deadline forward when no rule is waiting on its
-        // condition — a condition-blocked item must stay due so it is re-checked next run.
-        if (!$hasConditionBlocked && $earliestFutureDue !== null) {
-            $this->rescheduleItem($scheduleId, $earliestFutureDue);
         }
 
         return null;

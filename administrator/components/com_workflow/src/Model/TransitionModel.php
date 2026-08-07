@@ -425,7 +425,6 @@ class TransitionModel extends AdminModel
                     'delay_unit'      => $automationRule['delay_unit'] ?? 'minutes',
                     'cron_expression' => $automationRule['cron_expression'] ?? '',
                     'run_as_user_id'  => (int) ($automationRule['run_as_user_id'] ?? 0),
-                    'loop_mode'       => 0,
                     'item_filter'     => ($automationRule['item_filter'] ?? '') !== '' ? $automationRule['item_filter'] : null,
                     'fire_condition'  => ($automationRule['fire_condition'] ?? '') !== '' ? $automationRule['fire_condition'] : null,
                     'created'         => $now,
