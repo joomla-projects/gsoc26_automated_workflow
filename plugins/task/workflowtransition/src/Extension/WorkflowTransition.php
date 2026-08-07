@@ -10,7 +10,6 @@
 
 namespace Joomla\Plugin\Task\WorkflowTransition\Extension;
 
-use Cron\CronExpression;
 use Joomla\CMS\Application\CMSApplicationInterface;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Plugin\CMSPlugin;
@@ -20,12 +19,13 @@ use Joomla\CMS\Workflow\Workflow;
 use Joomla\Component\Scheduler\Administrator\Event\ExecuteTaskEvent;
 use Joomla\Component\Scheduler\Administrator\Task\Status as TaskStatus;
 use Joomla\Component\Scheduler\Administrator\Traits\TaskPluginTrait;
+use Joomla\Component\Workflow\Administrator\Automation\ConditionEvaluationException;
+use Joomla\Component\Workflow\Administrator\Automation\ConditionEvaluator;
+use Joomla\Component\Workflow\Administrator\Automation\DeadlineCalculator;
+use Joomla\Component\Workflow\Administrator\Automation\ItemFieldResolver;
 use Joomla\Database\DatabaseAwareTrait;
 use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
-use Joomla\Plugin\Task\WorkflowTransition\Condition\ConditionEvaluationException;
-use Joomla\Plugin\Task\WorkflowTransition\Condition\ConditionEvaluator;
-use Joomla\Plugin\Task\WorkflowTransition\Condition\ItemFieldResolver;
 use Joomla\Plugin\Task\WorkflowTransition\Dto\DueAutomation;
 
 // phpcs:disable PSR1.Files.SideEffects
@@ -204,47 +204,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     }
 
     /**
-     * Compute the datetime a rule fires for a given entry time.
-     *
-     * @param string $enteredAt When the item entered the stage (SQL datetime).
-     * @param object $rule The automation rule row.
-     *
-     * @return \DateTime|null The deadline as a DateTime object, or null if uncomputable.
-     *
-     * @since __DEPLOY_VERSION__
-     */
-    private function computeDeadline(string $enteredAt, object $rule): ?\DateTime
-    {
-        if ($rule->rule_type === 'cron') {
-            if (empty($rule->cron_expression)) {
-                return null;
-            }
-
-            $cronExpression = new CronExpression($rule->cron_expression);
-            $deadline       = $cronExpression->getNextRunDate(
-                $enteredAt,
-                0,
-                false,
-                Factory::getApplication()->get('offset', 'UTC')
-            );
-            $deadline->setTimezone(new \DateTimeZone('UTC'));
-
-            return $deadline;
-        }
-
-        $date     = new \DateTime($enteredAt, new \DateTimeZone('UTC'));
-        $delay    = match ($rule->delay_unit) {
-            'minutes' => new \DateInterval('PT' . $rule->delay_value . 'M'),
-            'hours'   => new \DateInterval('PT' . $rule->delay_value . 'H'),
-            'days'    => new \DateInterval('P' . $rule->delay_value . 'D'),
-            'months'  => new \DateInterval('P' . $rule->delay_value . 'M'),
-            default   => null,
-        };
-
-        return $delay ? $date->add($delay) : null;
-    }
-
-    /**
      * Corrects a stale next_transition_at value in the schedule table.
      *
      * Called when next_transition_at <= NOW() brought an item into the batch but the per-rule deadline computation shows it is not yet due. The stored
@@ -391,7 +350,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $earliestFutureDue   = null;
 
         foreach ($itemCandidates as $candidate) {
-            $deadline = $this->computeDeadline($candidate->entered_at, $candidate);
+            $deadline = DeadlineCalculator::forRule($candidate->entered_at, $candidate);
 
             if ($deadline === null) {
                 continue;

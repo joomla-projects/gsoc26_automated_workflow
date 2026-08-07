@@ -9,7 +9,7 @@
 		type="list"
 		label="COM_WORKFLOW_AUTOMATION_RULE_TYPE_LABEL"
 		description="COM_WORKFLOW_AUTOMATION_RULE_TYPE_DESC"
-		default="interval"
+		default="delay"
 		validate="options"
 		parentclass="cb-delay cb-rule-type"
 	>

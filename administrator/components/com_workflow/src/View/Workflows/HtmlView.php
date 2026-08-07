@@ -153,11 +153,27 @@ class HtmlView extends BaseHtmlView
             $toolbar->addNew('workflow.add');
         }
 
-        // Gated this on core.admin since the log is an audit view exposing failure details
+        // Gated on core.admin since these are audit views exposing failure details. Grouped in
+        // one dropdown so the two related views do not each claim toolbar width.
         if ($canDo->get('core.admin')) {
-            $toolbar->link(
+            $extension = $this->extension . ($this->section ? '.' . $this->section : '');
+
+            /** @var DropdownButton $automations */
+            $automations = $toolbar->dropdownButton('automation-group', 'COM_WORKFLOW_AUTOMATIONS_TOOLBAR')
+                ->toggleSplit(false)
+                ->icon('icon-cogs')
+                ->buttonClass('btn btn-action');
+
+            $automationBar = $automations->getChildToolbar();
+
+            $automationBar->link(
+                'COM_WORKFLOW_UPCOMING_LIST',
+                Route::_('index.php?option=com_workflow&view=upcoming&extension=' . $extension)
+            )->icon('icon-clock');
+
+            $automationBar->link(
                 'COM_WORKFLOW_LOGS_LIST',
-                Route::_('index.php?option=com_workflow&view=logs&extension=' . $this->extension . ($this->section ? '.' . $this->section : ''))
+                Route::_('index.php?option=com_workflow&view=logs&extension=' . $extension)
             )->icon('icon-list');
         }
 

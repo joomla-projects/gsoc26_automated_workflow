@@ -2,12 +2,14 @@
 
 namespace Joomla\Plugin\Workflow\Automation\Extension;
 
-use Cron\CronExpression;
 use Joomla\CMS\Event\Model\AfterSaveEvent;
+use Joomla\CMS\Event\Model\PrepareFormEvent;
 use Joomla\CMS\Event\Workflow\WorkflowTransitionEvent;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\CMS\Workflow\Workflow;
+use Joomla\CMS\Workflow\WorkflowServiceInterface;
+use Joomla\Component\Workflow\Administrator\Automation\DeadlineCalculator;
 use Joomla\Database\DatabaseAwareTrait;
 use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
@@ -26,7 +28,60 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         return [
             'onWorkflowAfterTransition' => 'logStageEntry',
             'onContentAfterSave'        => 'reevaluateOnChange',
+            'onContentPrepareForm'      => 'injectUpcomingTransitionField',
         ];
+    }
+
+    /**
+     * Adds the read-only "next automated transition" field to a workflow-enabled item form
+     *
+     * The com_content article edit template prints this field in its sidebar. On any other form
+     * it stays inert because the field is simply not added.
+     *
+     * @param PrepareFormEvent $event The form event.
+     *
+     * @return void
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    public function injectUpcomingTransitionField(PrepareFormEvent $event): void
+    {
+        $form = $event->getForm();
+
+        if (!$this->isWorkflowContentForm((string) $form->getName())) {
+            return;
+        }
+
+        $form->load(
+            '<form>'
+                . '<field name="upcoming_transition"'
+                . ' type="upcomingtransition"'
+                . ' addfieldprefix="Joomla\Component\Workflow\Administrator\Field"'
+                . ' label="COM_WORKFLOW_UPCOMING_ARTICLE_LABEL" />'
+                . '</form>'
+        );
+    }
+
+    /**
+     * Whether a form context is a content item form under an active workflow.
+     *
+     * @param string $context The form name, e.g. com_content.article.
+     *
+     * @return boolean
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function isWorkflowContentForm(string $context): bool
+    {
+        $parts = explode('.', $context);
+
+        if (\count($parts) < 2) {
+            return false;
+        }
+
+        $component = Factory::getApplication()->bootComponent($parts[0]);
+
+        return $component instanceof WorkflowServiceInterface && $component->isWorkflowActive($context);
     }
 
     public function logStageEntry(WorkflowTransitionEvent $event): void
@@ -266,33 +321,12 @@ final class Automation extends CMSPlugin implements SubscriberInterface
 
     private function computeNextTransitionAt(string $enteredAt, object $rule): ?string
     {
-        if ($rule->rule_type === 'cron') {
-            if (empty($rule->cron_expression)) {
-                return null;
-            }
+        // Delegate to the shared calculator so this plugin, the scheduler, and the
+        // upcoming-transitions view can never disagree on when a rule fires. Returns the
+        // deadline as a UTC SQL datetime string, or null when it cannot be computed.
+        $deadline = DeadlineCalculator::forRule($enteredAt, $rule);
 
-            $cron     = new CronExpression($rule->cron_expression);
-            $deadline = $cron->getNextRunDate(
-                $enteredAt,
-                0,
-                false,
-                Factory::getApplication()->get('offset', 'UTC')
-            );
-            $deadline->setTimezone(new \DateTimeZone('UTC'));
-
-            return $deadline->format('Y-m-d H:i:s');
-        }
-
-        $date     = new \DateTime($enteredAt, new \DateTimeZone('UTC'));
-        $delay    = match ($rule->delay_unit) {
-            'minutes' => new \DateInterval('PT' . $rule->delay_value . 'M'),
-            'hours'   => new \DateInterval('PT' . $rule->delay_value . 'H'),
-            'days'    => new \DateInterval('P' . $rule->delay_value . 'D'),
-            'months'  => new \DateInterval('P' . $rule->delay_value . 'M'),
-            default   => null,
-        };
-
-        return $delay ? $date->add($delay)->format('Y-m-d H:i:s') : null;
+        return $deadline?->format('Y-m-d H:i:s');
     }
 
     private function computeEarliestNextTransitionAt(string $enteredAt, array $rules): ?string

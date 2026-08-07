@@ -1,14 +1,14 @@
 <?php
 
 /**
- * @package Joomla.Plugin
- * @subpackage Task.WorkflowTransition
+ * @package     Joomla.Administrator
+ * @subpackage  com_workflow
  *
- * @copyright (C) 2026 Open Source Matters, Inc. <https://www.joomla.org>
- * @license GNU General Public License version 2 or later; see LICENSE.txt
+ * @copyright   (C) 2026 Open Source Matters, Inc. <https://www.joomla.org>
+ * @license     GNU General Public License version 2 or later; see LICENSE.txt
  */
 
-namespace Joomla\Plugin\Task\WorkflowTransition\Condition;
+namespace Joomla\Component\Workflow\Administrator\Automation;
 
 // phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;

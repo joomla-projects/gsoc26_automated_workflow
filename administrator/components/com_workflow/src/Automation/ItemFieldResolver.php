@@ -1,14 +1,14 @@
 <?php
 
 /**
- * @package Joomla.Plugin
- * @subpackage Task.WorkflowTransition
+ * @package     Joomla.Administrator
+ * @subpackage  com_workflow
  *
  * @copyright (C) 2026 Open Source Matters, Inc. <https://www.joomla.org>
  * @license GNU General Public License version 2 or later; see LICENSE.txt
  */
 
-namespace Joomla\Plugin\Task\WorkflowTransition\Condition;
+namespace Joomla\Component\Workflow\Administrator\Automation;
 
 use Joomla\CMS\Factory;
 use Joomla\Database\DatabaseInterface;
@@ -53,19 +53,22 @@ final class ItemFieldResolver
      *
      * @params integer $itemId The content item id.
      * @param string $extension The workflow extension, e.g. com_content.article.
+     * @param \DateTime|null $evaluationTime The moment the moment-fields (day of week, date)
+     * should describe. Defaults to now. Passing a future moment lets a caller ask "would this condition hold
+     * then?", which is how the upcoming-transitions views work out when a gated rule will actually fire.
      *
      * @return callable fn(string $fieldName): mixed
      *
      * @since __DEPLOY_VERSION__
      */
 
-    public function forItem(int $itemId, string $extension): callable
+    public function forItem(int $itemId, string $extension, ?\DateTime $evaluationTime = null): callable
     {
         $loadedValues = [];
 
-        return function (string $fieldName) use ($itemId, $extension, &$loadedValues) {
+        return function (string $fieldName) use ($itemId, $extension, $evaluationTime, &$loadedValues) {
             if (!\array_key_exists($fieldName, $loadedValues)) {
-                $loadedValues[$fieldName] = $this->resolveField($fieldName, $itemId, $extension);
+                $loadedValues[$fieldName] = $this->resolveField($fieldName, $itemId, $extension, $evaluationTime);
             }
 
             return $loadedValues[$fieldName];
@@ -73,25 +76,30 @@ final class ItemFieldResolver
     }
 
     /**
-     * Resolves a single field to the item's current value.
+     * Resolves a single field to the item's value at the evaluation time.
      *
      * @param string $fieldName The field to resolve.
      * @param integer $itemId The content item id.
      * @param string $extension The workflow extension.
+     * @param \DateTime|null $evaluationTime The moment to describe, or null for now.
      *
      * @return int|string|array|null
      *
      * @since __DEPLOY_VERSION__
      */
-    private function resolveField(string $fieldName, int $itemId, string $extension): int|string|array|null
-    {
+    private function resolveField(
+        string $fieldName,
+        int $itemId,
+        string $extension,
+        ?\DateTime $evaluationTime = null
+    ): int|string|array|null {
         switch ($fieldName) {
             case 'day_of_week':
-                return (int) Factory::getDate('now')->format('w');  // 0 = Sunday
+                return (int) ($evaluationTime ? $evaluationTime->format('w') : Factory::getDate('now')->format('w'));  // 0 = Sunday
 
             case 'now':
             case 'date':
-                return Factory::getDate('now')->toSql();
+                return $evaluationTime ? $evaluationTime->format('Y-m-d H:i:s') : Factory::getDate('now')->toSql();
 
                 // Item fields below are com_content-specific for now; a later version will
                 // expose them through an event so other extensions can resolve their own fields.
