@@ -46,6 +46,116 @@ final class ItemFieldResolver
     }
 
     /**
+     * Preloaded field values, keyed by item id. Populated by preload() so a run of many
+     * items costs a fixed number of queries instead of one lookup per item.
+     *
+     * @var    array<int, int[]>
+     * @since  __DEPLOY_VERSION__
+     */
+    private array $preloadedTags = [];
+
+    /**
+     * @var    array<int, integer>
+     * @since  __DEPLOY_VERSION__
+     */
+    private array $preloadedCategories = [];
+
+    /**
+     * @var    array<int, int[]>
+     * @since  __DEPLOY_VERSION__
+     */
+    private array $preloadedAuthorGroups = [];
+
+    /**
+     * Which item ids preload() has covered. Needed to tell "preloaded, and the answer is
+     * empty" apart from "never preloaded, go and ask the database".
+     *
+     * @var    array<int, boolean>
+     * @since  __DEPLOY_VERSION__
+     */
+    private array $preloadedItems = [];
+
+    /**
+     * Loads every item field for a set of items up front, in a fixed number of queries.
+     *
+     * Without this, evaluating a filter across N items issues N lookups, because each item
+     * asks the database for its own tags. Callers that process a batch should preload it
+     * first; callers that handle a single item can skip this and the per-item queries below
+     * still answer correctly.
+     *
+     * @param   int[]   $itemIds    The content item ids about to be evaluated.
+     * @param   string  $extension  The workflow extension, e.g. com_content.article.
+     *
+     * @return  void
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function preload(array $itemIds, string $extension): void
+    {
+        $itemIds = array_values(array_unique(array_map('intval', $itemIds)));
+
+        if ($itemIds === []) {
+            return;
+        }
+
+        $db = $this->database;
+
+        // Tags for the whole batch in one query.
+        $tagQuery = $db->getQuery(true)
+            ->select($db->quoteName(['content_item_id', 'tag_id']))
+            ->from($db->quoteName('#__contentitem_tag_map'))
+            ->where($db->quoteName('type_alias') . ' = :extension')
+            ->whereIn($db->quoteName('content_item_id'), $itemIds)
+            ->bind(':extension', $extension);
+
+        foreach ($db->setQuery($tagQuery)->loadObjectList() ?: [] as $tagRow) {
+            $this->preloadedTags[(int) $tagRow->content_item_id][] = (int) $tagRow->tag_id;
+        }
+
+        // Category and author come from the same table, so one query answers both.
+        $itemIdsByAuthor = [];
+
+        if ($extension === 'com_content.article') {
+            $contentQuery = $db->getQuery(true)
+                ->select($db->quoteName(['id', 'catid', 'created_by']))
+                ->from($db->quoteName('#__content'))
+                ->whereIn($db->quoteName('id'), $itemIds);
+
+            foreach ($db->setQuery($contentQuery)->loadObjectList() ?: [] as $contentRow) {
+                $this->preloadedCategories[(int) $contentRow->id] = (int) $contentRow->catid;
+
+                if ((int) $contentRow->created_by > 0) {
+                    $itemIdsByAuthor[(int) $contentRow->created_by][] = (int) $contentRow->id;
+                }
+            }
+        }
+
+        // Group memberships for every author in the batch, then fanned back out to their items.
+        if ($itemIdsByAuthor !== []) {
+            $groupQuery = $db->getQuery(true)
+                ->select($db->quoteName(['user_id', 'group_id']))
+                ->from($db->quoteName('#__user_usergroup_map'))
+                ->whereIn($db->quoteName('user_id'), array_keys($itemIdsByAuthor));
+
+            $groupsByAuthor = [];
+
+            foreach ($db->setQuery($groupQuery)->loadObjectList() ?: [] as $groupRow) {
+                $groupsByAuthor[(int) $groupRow->user_id][] = (int) $groupRow->group_id;
+            }
+
+            foreach ($itemIdsByAuthor as $authorId => $authoredItemIds) {
+                foreach ($authoredItemIds as $authoredItemId) {
+                    $this->preloadedAuthorGroups[$authoredItemId] = $groupsByAuthor[$authorId] ?? [];
+                }
+            }
+        }
+
+        foreach ($itemIds as $itemId) {
+            $this->preloadedItems[$itemId] = true;
+        }
+    }
+
+    /**
      * Builds a resolver callback bound to one item, for use by the ConditionEvaluator.
      *
      * Looked-up values are cached per field so a rule that references the same field in
@@ -129,6 +239,10 @@ final class ItemFieldResolver
      */
     private function loadTagIds(int $itemId, string $extension): array
     {
+        if (isset($this->preloadedItems[$itemId])) {
+            return $this->preloadedTags[$itemId] ?? [];
+        }
+
         $loadTagsQuery = $this->database->getQuery(true)
             ->select($this->database->quoteName('tag_id'))
             ->from($this->database->quoteName('#__contentitem_tag_map'))
@@ -156,6 +270,10 @@ final class ItemFieldResolver
             return 0;
         }
 
+        if (isset($this->preloadedItems[$itemId])) {
+            return $this->preloadedCategories[$itemId] ?? 0;
+        }
+
         $loadCategoryQuery = $this->database->getQuery(true)
             ->select($this->database->quoteName('catid'))
             ->from($this->database->quoteName('#__content'))
@@ -179,6 +297,10 @@ final class ItemFieldResolver
     {
         if ($extension !== 'com_content.article') {
             return [];
+        }
+
+        if (isset($this->preloadedItems[$itemId])) {
+            return $this->preloadedAuthorGroups[$itemId] ?? [];
         }
 
         $authorQuery = $this->database->getQuery(true)
