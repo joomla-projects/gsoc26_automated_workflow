@@ -14,12 +14,13 @@ namespace Joomla\Component\Workflow\Administrator\Field;
 \defined('_JEXEC') or die;
 // phpcs:enable PSR1.Files.SideEffects
 
+use Joomla\CMS\Event\Workflow\WorkflowConditionFieldsEvent;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Form\FormField;
-use Joomla\CMS\Helper\UserGroupsHelper;
-use Joomla\CMS\HTML\HTMLHelper;
 use Joomla\CMS\Language\Text;
+use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\Database\DatabaseInterface;
+use Joomla\Database\ParameterType;
 
 /**
  * Renders one automation condition builder.
@@ -70,11 +71,13 @@ class ConditionbuilderField extends FormField
             $storedValue = json_encode($storedValue);
         }
 
+        $availableFields = $this->getAvailableFields();
+
         $configuration = json_encode([
-            'fields'       => $this->getFieldChoices(),
-            'operators'    => $this->getOperatorChoices(),
-            'valueTypes'   => $this->getValueTypes(),
-            'valueOptions' => $this->getValueChoices(),
+            'fields'       => $this->getFieldChoices($availableFields),
+            'operators'    => $this->getOperatorChoices($availableFields),
+            'valueTypes'   => $this->getValueTypes($availableFields),
+            'valueOptions' => $this->getValueChoices($availableFields),
             'text'         => $this->getInterfaceText(),
         ]);
 
@@ -85,54 +88,116 @@ class ConditionbuilderField extends FormField
             . '</div>';
     }
 
-    private function getValueTypes(): array
+    /**
+     * Asks the workflow plugins which checks may be offered here.
+     *
+     * Nothing is hardcoded: the menu is whatever the installed plugins declare for this
+     * context, filtered to the scope this instance is for. Core's own checks arrive the same
+     * way, through plg_workflow_conditionfields.
+     *
+     * @return  array<string, array>  Check definitions keyed by name.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function getAvailableFields(): array
     {
-        $all = [
-            'day_of_week'  => 'multiselect',
-            'date'         => 'date',
-            'tag'          => 'multiselect',
-            'category'     => 'select',
-            'author_group' => 'select',
-        ];
+        PluginHelper::importPlugin('workflow');
 
-        return array_intersect_key($all, array_flip($this->allowedFields()));
+        $app     = Factory::getApplication();
+        $context = $this->resolveContext($app);
+
+        $event = new WorkflowConditionFieldsEvent(
+            'onWorkflowListConditionFields',
+            ['context' => $context]
+        );
+
+        $app->getDispatcher()->dispatch($event->getName(), $event);
+
+        // A filter says which items a rule covers, so it offers item checks; a condition says
+        // when a due rule may run, so it offers moment checks.
+        $wantedScope = (string) $this->element['mode'] === 'filter'
+            ? WorkflowConditionFieldsEvent::SCOPE_ITEM
+            : WorkflowConditionFieldsEvent::SCOPE_MOMENT;
+
+        return array_filter(
+            $event->getFields(),
+            static fn (array $field): bool => $field['scope'] === $wantedScope
+        );
     }
 
     /**
-     * The properties conditions or filters may be built on.
+     * Works out which workflow extension the builder is being drawn for.
+     *
+     * The request usually carries it, but a link can arrive with the parameter empty, so fall
+     * back to the workflow that owns this transition before giving up on a sensible default.
+     *
+     * @param   \Joomla\CMS\Application\CMSApplicationInterface  $app  The application.
+     *
+     * @return  string
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function resolveContext($app): string
+    {
+        // The workflow row carries the full context including the section, e.g.
+        // com_content.article. The request only carries the component part, because
+        // com_workflow splits the two, so prefer the stored value.
+        $workflowId = (int) $app->getInput()->getInt('workflow_id');
+
+        if ($workflowId > 0) {
+            $db    = Factory::getContainer()->get(DatabaseInterface::class);
+            $query = $db->getQuery(true)
+                ->select($db->quoteName('extension'))
+                ->from($db->quoteName('#__workflows'))
+                ->where($db->quoteName('id') . ' = :workflowId')
+                ->bind(':workflowId', $workflowId, ParameterType::INTEGER);
+
+            $extension = (string) $db->setQuery($query)->loadResult();
+
+            if ($extension !== '') {
+                return $extension;
+            }
+        }
+
+        $context = (string) $app->getInput()->getCmd('extension', '');
+
+        return $context !== '' ? $context : 'com_content.article';
+    }
+
+    /**
+     * The checks the builder may offer, as value and label pairs.
+     *
+     * @param   array  $fields  The available check definitions.
      *
      * @return  array<int, array<string, string>>
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function getFieldChoices(): array
+    private function getFieldChoices(array $fields): array
     {
-        $labels = [
-            'day_of_week'  => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_DAY_OF_WEEK'),
-            'date'         => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_DATE'),
-            'tag'          => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_TAG'),
-            'category'     => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_CATEGORY'),
-            'author_group' => Text::_('COM_WORKFLOW_AUTOMATION_FIELD_AUTHOR_GROUP'),
-        ];
-
         $choices = [];
 
-        foreach ($this->allowedFields() as $field) {
-            $choices[] = ['value' => $field, 'label' => $labels[$field]];
+        foreach ($fields as $field) {
+            $choices[] = ['value' => $field['name'], 'label' => $field['label']];
         }
 
         return $choices;
     }
 
     /**
-     * The operators each field may use. List valued fields get membership
-     * operators; scalar and date fields get their own comparisons.
+     * The operators each check supports.
+     *
+     * A plugin names the operators it wants but never implements them: the meaning of every
+     * operator stays here and in the evaluator, so the same comparison behaves identically
+     * whichever extension supplied the check.
+     *
+     * @param   array  $fields  The available check definitions.
      *
      * @return  array<string, array<int, array<string, string>>>
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function getOperatorChoices(): array
+    private function getOperatorChoices(array $fields): array
     {
         $operatorLabels = [
             'is'       => Text::_('COM_WORKFLOW_AUTOMATION_OP_IS'),
@@ -148,24 +213,17 @@ class ConditionbuilderField extends FormField
             'not on'   => Text::_('COM_WORKFLOW_AUTOMATION_OP_NOT_ON'),
         ];
 
-        $operatorsByField = [
-            'day_of_week'  => ['in', 'not in'],
-            'date'         => ['after', 'before', 'on', 'not on'],
-            'tag'          => ['has any', 'has all', 'has none'],
-            'category'     => ['is', 'is not'],
-            'author_group' => ['has any', 'has all', 'has none'],
-        ];
-
-        $allowed = $this->allowedFields();
         $choices = [];
 
-        foreach ($operatorsByField as $fieldName => $operators) {
-            if (!\in_array($fieldName, $allowed, true)) {
-                continue;
-            }
+        foreach ($fields as $field) {
+            foreach ($field['operators'] as $operator) {
+                // Silently skip an operator this build does not know, so a plugin written
+                // against a newer Joomla degrades rather than breaking the whole builder.
+                if (!isset($operatorLabels[$operator])) {
+                    continue;
+                }
 
-            foreach ($operators as $operator) {
-                $choices[$fieldName][] = ['value' => $operator, 'label' => $operatorLabels[$operator]];
+                $choices[$field['name']][] = ['value' => $operator, 'label' => $operatorLabels[$operator]];
             }
         }
 
@@ -173,106 +231,43 @@ class ConditionbuilderField extends FormField
     }
 
     /**
-     * The selectable values for each field, resolved once here so the builder
-     * needs no further requests.
+     * How each check's value is entered.
+     *
+     * @param   array  $fields  The available check definitions.
+     *
+     * @return  array<string, string>
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function getValueTypes(array $fields): array
+    {
+        $types = [];
+
+        foreach ($fields as $field) {
+            $types[$field['name']] = $field['valueType'];
+        }
+
+        return $types;
+    }
+
+    /**
+     * The selectable values for each check, resolved once here so the builder needs no
+     * further requests.
+     *
+     * @param   array  $fields  The available check definitions.
      *
      * @return  array<string, array<int, array<string, string>>>
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function getValueChoices(): array
-    {
-        $allowed = $this->allowedFields();
-        $choices = [];
-
-        if (\in_array('day_of_week', $allowed, true)) {
-            $choices['day_of_week'] = $this->getWeekdayChoices();
-        }
-        if (\in_array('tag', $allowed, true)) {
-            $choices['tag'] = $this->getTagChoices();
-        }
-        if (\in_array('category', $allowed, true)) {
-            $choices['category'] = $this->getCategoryChoices();
-        }
-        if (\in_array('author_group', $allowed, true)) {
-            $choices['author_group'] = $this->getUserGroupChoices();
-        }
-
-        return $choices;
-    }
-
-    /**
-     * Weekday options, Sunday (0) through Saturday (6).
-     *
-     * @return  array<int, array<string, string>>
-     * @since   __DEPLOY_VERSION__
-     */
-    private function getWeekdayChoices(): array
-    {
-        $weekdayKeys = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-        $choices     = [];
-
-        foreach ($weekdayKeys as $dayNumber => $languageKey) {
-            $choices[] = ['value' => (string) $dayNumber, 'label' => Text::_($languageKey)];
-        }
-
-        return $choices;
-    }
-
-    /**
-     * Published content tags.
-     *
-     * @return  array<int, array<string, string>>
-     * @since   __DEPLOY_VERSION__
-     */
-    private function getTagChoices(): array
-    {
-        $db    = Factory::getContainer()->get(DatabaseInterface::class);
-        $query = $db->getQuery(true)
-            ->select($db->quoteName(['id', 'title']))
-            ->from($db->quoteName('#__tags'))
-            ->where($db->quoteName('published') . ' = 1')
-            ->where($db->quoteName('id') . ' > 1')
-            ->order($db->quoteName('title') . ' ASC');
-
-        $choices = [];
-
-        foreach ($db->setQuery($query)->loadObjectList() ?: [] as $tag) {
-            $choices[] = ['value' => (string) $tag->id, 'label' => $tag->title];
-        }
-
-        return $choices;
-    }
-
-    /**
-     * com_content category options.
-     *
-     * @return  array<int, array<string, string>>
-     * @since   __DEPLOY_VERSION__
-     */
-    private function getCategoryChoices(): array
+    private function getValueChoices(array $fields): array
     {
         $choices = [];
 
-        foreach (HTMLHelper::_('category.options', 'com_content') as $category) {
-            $choices[] = ['value' => (string) $category->value, 'label' => $category->text];
-        }
-
-        return $choices;
-    }
-
-    /**
-     * All user groups.
-     *
-     * @return  array<int, array<string, string>>
-     * @since   __DEPLOY_VERSION__
-     */
-    private function getUserGroupChoices(): array
-    {
-        $choices = [];
-
-        foreach (UserGroupsHelper::getInstance()->getAll() as $group) {
-            $choices[] = ['value' => (string) $group->id, 'label' => $group->title];
+        foreach ($fields as $field) {
+            if ($field['options'] !== []) {
+                $choices[$field['name']] = $field['options'];
+            }
         }
 
         return $choices;
@@ -305,27 +300,5 @@ class ConditionbuilderField extends FormField
             'placeholder'     => Text::_('JGLOBAL_TYPE_OR_SELECT_SOME_OPTIONS'),
             'emptyExpression' => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_EXPRESSION'),
         ];
-    }
-
-    /**
-     * The fields this builder instance may offer, based on the field's mode.
-     * Filter mode exposes item properties; condition mode exposes moment properties.
-     *
-     * @return string[]
-     * @since __DEPLOY_VERSION__
-     */
-    private function allowedFields(): array
-    {
-        $mode = (string) $this->element['mode'];
-
-        if ($mode === 'filter') {
-            return ['tag', 'category', 'author_group'];
-        }
-
-        if ($mode === 'condition') {
-            return ['day_of_week', 'date'];
-        }
-
-        return ['day_of_week', 'date', 'tag', 'category', 'author_group'];
     }
 }
