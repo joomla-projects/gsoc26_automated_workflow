@@ -120,6 +120,18 @@ final class ConditionFields extends CMSPlugin implements SubscriberInterface
             'select',
             $this->getUserGroupOptions()
         );
+
+        // There is no list of hit counts to choose from, so the number is typed rather than
+        // picked. A check does not have to offer options at all.
+        $event->addField(
+            'hits',
+            // Joomla's own word for this, used by the article list column and its sort options.
+            // A different one here would leave the filter and the column it filters on disagreeing.
+            Text::_('JGLOBAL_HITS'),
+            WorkflowConditionFieldsEvent::SCOPE_ITEM,
+            ['greater than', 'less than', 'is', 'is not'],
+            'number'
+        );
     }
 
     /**
@@ -158,6 +170,11 @@ final class ConditionFields extends CMSPlugin implements SubscriberInterface
 
             case 'author_group':
                 $event->setValues($this->loadAuthorGroupIds($itemIds, $event->getContext()));
+
+                return;
+
+            case 'hits':
+                $event->setValues($this->loadHits($itemIds, $event->getContext()));
 
                 return;
         }
@@ -253,6 +270,37 @@ final class ConditionFields extends CMSPlugin implements SubscriberInterface
 
         foreach ($db->setQuery($query)->loadObjectList() ?: [] as $row) {
             $values[(int) $row->id] = (int) $row->catid;
+        }
+
+        return $values;
+    }
+
+    /**
+     * Hit count per item, in one query.
+     *
+     * @param   int[]   $itemIds  The items.
+     * @param   string  $context  The workflow context.
+     *
+     * @return  array<int, integer>
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function loadHits(array $itemIds, string $context): array
+    {
+        if ($itemIds === [] || $context !== 'com_content.article') {
+            return [];
+        }
+
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->select($db->quoteName(['id', 'hits']))
+            ->from($db->quoteName('#__content'))
+            ->whereIn($db->quoteName('id'), $itemIds);
+
+        $values = array_fill_keys($itemIds, 0);
+
+        foreach ($db->setQuery($query)->loadObjectList() ?: [] as $row) {
+            $values[(int) $row->id] = (int) $row->hits;
         }
 
         return $values;

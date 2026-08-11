@@ -234,6 +234,12 @@ final class ConditionEvaluator
             case 'not on':
                 return !$this->compare($actualValue, 'on', $expectedValue, $fieldName);
 
+            case 'greater than':
+                return $this->asNumber($actualValue, $fieldName) > $this->asNumber($expectedValue, $fieldName);
+
+            case 'less than':
+                return $this->asNumber($actualValue, $fieldName) < $this->asNumber($expectedValue, $fieldName);
+
             default:
                 throw new ConditionEvaluationException('Unknown operator "' . $operatorName . '" on the "' . $fieldName . '" check.');
         }
@@ -264,6 +270,40 @@ final class ConditionEvaluator
         }
 
         return (string) $value;
+    }
+
+    /**
+     * Asserts a value is numeric and returns it as a float.
+     *
+     * Floats compare both whole and fractional numbers, and the loss of precision only
+     * matters far beyond any quantity a content item carries.
+     *
+     * @param   mixed   $value      The value to check.
+     * @param   string  $fieldName  The field name, for error messages.
+     *
+     * @return  float
+     *
+     * @throws  ConditionEvaluationException  When the value is not a number.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function asNumber($value, string $fieldName): float
+    {
+        if (\is_array($value)) {
+            throw new ConditionEvaluationException(
+                'The "' . $fieldName . '" check expected a single number but got a list.'
+            );
+        }
+
+        // Guarding here rather than casting keeps a check on a field that turned out to hold
+        // text from quietly reading as zero and comparing true against every negative number.
+        if (!is_numeric($value)) {
+            throw new ConditionEvaluationException(
+                'The "' . $fieldName . '" check expected a number but got "' . var_export($value, true) . '".'
+            );
+        }
+
+        return (float) $value;
     }
 
     /**

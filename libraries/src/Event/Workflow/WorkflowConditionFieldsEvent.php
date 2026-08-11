@@ -83,8 +83,13 @@ class WorkflowConditionFieldsEvent extends Event
      * @param   string    $label      Translated label shown in the field dropdown.
      * @param   string    $scope      self::SCOPE_ITEM or self::SCOPE_MOMENT.
      * @param   string[]  $operators  Operator keys this check supports, e.g. ['is', 'is not'].
-     * @param   string    $valueType  How the value is entered: select, multiselect, date or text.
+     *                                Only keys com_workflow knows are offered, so a check written
+     *                                against a newer Joomla loses that operator rather than
+     *                                breaking the builder.
+     * @param   string    $valueType  How the value is entered: select or multiselect to pick from
+     *                                $options, or date, text or number to type a value freely.
      * @param   array     $options    Selectable values as ['value' => ..., 'label' => ...] pairs.
+     *                                Ignored by the typed value types.
      *
      * @return  void
      *

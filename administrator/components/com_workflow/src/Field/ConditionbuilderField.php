@@ -211,6 +211,9 @@ class ConditionbuilderField extends FormField
             'after'    => Text::_('COM_WORKFLOW_AUTOMATION_OP_AFTER'),
             'on'       => Text::_('COM_WORKFLOW_AUTOMATION_OP_ON'),
             'not on'   => Text::_('COM_WORKFLOW_AUTOMATION_OP_NOT_ON'),
+
+            'greater than' => Text::_('COM_WORKFLOW_AUTOMATION_OP_GREATER_THAN'),
+            'less than'    => Text::_('COM_WORKFLOW_AUTOMATION_OP_LESS_THAN'),
         ];
 
         $choices = [];
