@@ -42,7 +42,8 @@ class WorkflowResolveFieldsEvent extends Event
      */
     public function __construct($name, array $arguments = [])
     {
-        $arguments['values'] = [];
+        $arguments['values']   = [];
+        $arguments['answered'] = false;
 
         parent::__construct($name, $arguments);
     }
@@ -96,10 +97,18 @@ class WorkflowResolveFieldsEvent extends Event
     }
 
     /**
-     * Supplies the resolved values.
+     * Supplies the resolved values, and claims the check.
+     *
+     * Call this even with an empty array when the check is yours. That is what separates
+     * "this check belongs to me and I could not answer for those items" from "nobody here
+     * knows this check", which the two cases are reported very differently for.
+     *
+     * Omitting an item is allowed and means the check cannot be evaluated for it: no rule
+     * will fire on that item, rather than a comparison being made against a guess. A source
+     * that is temporarily unreachable should omit rather than substitute a default.
      *
      * @param   array  $values  Item id to value. A value may be a scalar or a list, depending
-     *                          on the check; an item you have no answer for may be omitted.
+     *                          on the check.
      *
      * @return  void
      *
@@ -107,9 +116,22 @@ class WorkflowResolveFieldsEvent extends Event
      */
     public function setValues(array $values): void
     {
-        $this->arguments['values'] = $values + $this->arguments['values'];
+        $this->arguments['values']   = $values + $this->arguments['values'];
+        $this->arguments['answered'] = true;
 
         $this->stopPropagation();
+    }
+
+    /**
+     * Whether any plugin claimed this check, regardless of how many items it answered for.
+     *
+     * @return  boolean
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function isAnswered(): bool
+    {
+        return $this->arguments['answered'] === true;
     }
 
     /**

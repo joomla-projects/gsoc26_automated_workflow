@@ -129,7 +129,8 @@ final class ItemFieldResolver
      *
      * @return  mixed
      *
-     * @throws  ConditionEvaluationException  When no plugin claims the check.
+     * @throws  ConditionEvaluationException  When no plugin claims the check, or the plugin that
+     *                                        does had no value for this item.
      *
      * @since   __DEPLOY_VERSION__
      */
@@ -152,9 +153,19 @@ final class ItemFieldResolver
             }
         }
 
-        // An item the plugin had no answer for is genuinely absent rather than empty, which a
-        // comparison should not silently treat as a match.
-        return $this->resolved[$cacheKey][$itemId] ?? null;
+        // The check exists but its provider had no value for this item, which is not the same
+        // as an empty one. Comparing against a missing value would be a guess, so the item is
+        // reported and skipped instead. A remote source that timed out lands here.
+        if (!\array_key_exists($itemId, $this->resolved[$cacheKey])) {
+            throw new ConditionEvaluationException(\sprintf(
+                'The extension providing the "%s" check returned no value for item %s.%d.',
+                $fieldName,
+                $extension,
+                $itemId
+            ));
+        }
+
+        return $this->resolved[$cacheKey][$itemId];
     }
 
     /**
@@ -167,7 +178,7 @@ final class ItemFieldResolver
      *
      * @return  array<int, mixed>
      *
-     * @throws  ConditionEvaluationException  When nothing answered.
+     * @throws  ConditionEvaluationException  When no plugin claims the check.
      *
      * @since   __DEPLOY_VERSION__
      */
@@ -188,17 +199,19 @@ final class ItemFieldResolver
 
         $app->getDispatcher()->dispatch($event->getName(), $event);
 
-        $values = $event->getValues();
-
-        // A rule referring to a check nobody provides is broken, not empty: the plugin that
-        // supplied it has probably been disabled or removed since the rule was saved.
-        if ($values === []) {
-            throw new ConditionEvaluationException(
-                'No plugin resolved the condition field "' . $fieldName . '" for ' . $extension
-                    . '. The extension that provides it may be disabled.'
-            );
+        // Nobody claimed the check at all, so the rule refers to something this site no longer
+        // has. Kept separate from a provider that answered for no items, because that is a
+        // working extension having a bad day rather than a missing one, and sending someone to
+        // the plugin manager to look for a timeout wastes their afternoon.
+        if (!$event->isAnswered()) {
+            throw new ConditionEvaluationException(\sprintf(
+                'No installed extension provides the "%s" check that this rule uses on %s. '
+                    . 'The extension that supplied it has probably been disabled or uninstalled.',
+                $fieldName,
+                $extension
+            ));
         }
 
-        return $values;
+        return $event->getValues();
     }
 }
