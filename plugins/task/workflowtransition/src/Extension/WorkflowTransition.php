@@ -60,13 +60,27 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * How many (item, rule) rows to consider in one run.
      *
      * Without a stored deadline every item in an automated stage is a candidate, so the batch
-     * is bounded to run predictable. Rows are ordered oldest-entered first, so a backlog
-     * drains steadily instead of starving the items that have waited longest.
+     * is bounded to keep a run predictable.
+     *
+     * Rows are taken least-recently-checked first and every row considered is stamped, so the
+     * window rotates and each row gets its turn. Ordering by entry time instead would let a
+     * group that never becomes eligible, because a filter keeps excluding it, hold the front
+     * of the queue forever: those rows never transition, so their entry time never changes,
+     * so nothing behind them is ever reached.
      *
      * @var integer
      * @since __DEPLOY_VERSION__
      */
     private const MAX_CANDIDATES_PER_RUN = 500;
+
+    /**
+     * Stands in for "never checked" when sorting. The earliest datetime MySQL accepts, so a
+     * row that has never been considered always sorts ahead of one that has.
+     *
+     * @var string
+     * @since __DEPLOY_VERSION__
+     */
+    private const NEVER_CHECKED = '1000-01-01 00:00:00';
 
 
     /**
@@ -122,6 +136,10 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         if (empty($candidates)) {
             return TaskStatus::OK;
         }
+
+        // Stamped before anything is evaluated, not after, so a row whose condition throws
+        // still moves to the back of the queue instead of being re-picked every run.
+        $this->markCandidatesChecked($candidates, $now);
 
         // Group the candidate rules by the item they might act on, so we pick one winner per item.
         $candidatesByItem = [];
@@ -205,6 +223,15 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             )
             ->where($db->quoteName('wis.requires_intervention') . ' = 0')
             ->where($db->quoteName('war.published') . ' = 1')
+            // A row nobody has looked at yet sorts as though it were checked long ago, so a new
+            // item is picked up on the next run rather than waiting a full rotation. Written as
+            // COALESCE rather than NULLS FIRST because MySQL and PostgreSQL disagree on where
+            // nulls belong in an ascending sort.
+            ->order(
+                'COALESCE(' . $db->quoteName('wis.last_checked_at') . ', '
+                    . $db->quote(self::NEVER_CHECKED) . ') ASC'
+            )
+            // Among rows checked equally long ago, the one waiting longest in its stage first.
             ->order($db->quoteName('wis.entered_at') . ' ASC')
             ->order($db->quoteName('war.ordering') . ' ASC')
             ->setLimit(self::MAX_CANDIDATES_PER_RUN);
@@ -273,6 +300,38 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             $base = Uri::root();
         }
         return rtrim($base, '/') . '/administrator/index.php?option=' . $option . '&task=' . $type . '.edit&id=' . $item->item_id;
+    }
+
+    /**
+     * Records that this run considered these item states, in one query.
+     *
+     * This is what makes the candidate window rotate. Every row the run looked at moves to the
+     * back of the queue, whether or not a rule fired for it, so the next run reaches the rows
+     * behind it.
+     *
+     * @param   DueAutomation[]  $candidates  Every candidate row this run fetched.
+     * @param   string           $now         The run's timestamp, in SQL format.
+     *
+     * @return  void
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function markCandidatesChecked(array $candidates, string $now): void
+    {
+        // One item can appear once per rule on its stage, so the ids are deduplicated before
+        // they reach the query.
+        $itemStateIds = array_values(array_unique(
+            array_map(static fn (DueAutomation $candidate): int => $candidate->item_state_id, $candidates)
+        ));
+
+        $db          = $this->getDatabase();
+        $updateQuery = $db->getQuery(true)
+            ->update($db->quoteName('#__workflow_item_state'))
+            ->set($db->quoteName('last_checked_at') . ' = :now')
+            ->whereIn($db->quoteName('id'), $itemStateIds)
+            ->bind(':now', $now);
+
+        $db->setQuery($updateQuery)->execute();
     }
 
     /**

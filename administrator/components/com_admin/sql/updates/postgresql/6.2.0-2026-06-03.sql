@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS "#__workflow_item_state" (
     "entered_at" timestamp without time zone NOT NULL,
     "triggered_by" varchar(20) DEFAULT 'manual' NOT NULL,
     "requires_intervention" smallint DEFAULT 0 NOT NULL,
+    "last_checked_at" timestamp without time zone,
     PRIMARY KEY ("id"),
     CONSTRAINT "#__workflow_item_state_idx_item_extension" UNIQUE ("item_id", "extension")
 );
@@ -50,6 +51,8 @@ CREATE TABLE IF NOT EXISTS "#__workflow_item_state" (
 CREATE INDEX "#__workflow_item_state_idx_stage_entered" ON "#__workflow_item_state" ("stage_id", "entered_at");
 
 CREATE INDEX "#__workflow_item_state_idx_requires_intervention" ON "#__workflow_item_state" ("requires_intervention");
+
+CREATE INDEX "#__workflow_item_state_idx_last_checked" ON "#__workflow_item_state" ("last_checked_at");
 
 COMMENT ON COLUMN "#__workflow_item_state"."item_id" IS 'Extension table id value';
 

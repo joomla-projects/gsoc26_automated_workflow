@@ -1306,10 +1306,12 @@ CREATE TABLE IF NOT EXISTS `#__workflow_item_state` (
 	`entered_at` datetime NOT NULL COMMENT 'When the item arrived in stage_id',
 	`triggered_by` ENUM('manual', 'automation') NOT NULL DEFAULT 'manual' COMMENT 'Determine if a transition was triggered manually or by the automation',
 	`requires_intervention` tinyint NOT NULL DEFAULT 0 COMMENT 'Set when an automated transition failed; excluded from the scheduler until an admin clears it',
+	`last_checked_at` datetime DEFAULT NULL COMMENT 'When the scheduler last considered this item; null means never',
 	PRIMARY KEY (`id`),
 	UNIQUE KEY `idx_item_extension` (`item_id`, `extension`),
 	KEY `idx_stage_entered` (`stage_id`, `entered_at`),
-	KEY `idx_requires_intervention` (`requires_intervention`)
+	KEY `idx_requires_intervention` (`requires_intervention`),
+	KEY `idx_last_checked` (`last_checked_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 DEFAULT COLLATE=utf8mb4_unicode_ci;
 
 --
