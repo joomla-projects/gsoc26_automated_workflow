@@ -99,7 +99,7 @@ class LogsModel extends ListModel
             ->join('LEFT', $db->quoteName('#__workflow_stages', 'f_stage'), $db->quoteName('f_stage.id') . ' = ' . $db->quoteName('l.from_stage_id'))
             ->join('LEFT', $db->quoteName('#__workflow_stages', 't_stage'), $db->quoteName('t_stage.id') . ' = ' . $db->quoteName('l.to_stage_id'))
             ->join('LEFT', $db->quoteName('#__users', 'u'), $db->quoteName('u.id') . ' = ' . $db->quoteName('l.run_as_user_id'))
-            ->join('LEFT', $db->quoteName('#__workflow_automation_schedule', 's'), $db->quoteName('s.item_id') . ' = ' . $db->quoteName('l.item_id') . ' AND ' . $db->quoteName('s.extension') . ' = ' . $db->quoteName('l.extension'));
+            ->join('LEFT', $db->quoteName('#__workflow_item_state', 's'), $db->quoteName('s.item_id') . ' = ' . $db->quoteName('l.item_id') . ' AND ' . $db->quoteName('s.extension') . ' = ' . $db->quoteName('l.extension'));
 
         if ($extension = (string) $this->getState('filter.extension')) {
             $automationLogQuery->where($db->quoteName('l.extension') . ' = :extension')
@@ -152,7 +152,7 @@ class LogsModel extends ListModel
     {
         $db                     = $this->getDatabase();
         $clearInterventionQuery = $db->getQuery(true)
-            ->update($db->quoteName('#__workflow_automation_schedule'))
+            ->update($db->quoteName('#__workflow_item_state'))
             ->set($db->quoteName('requires_intervention') . ' = 0')
             ->where($db->quoteName('item_id') . ' = :itemId')
             ->where($db->quoteName('extension') . ' = :extension')

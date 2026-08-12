@@ -99,7 +99,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         // One query to find which items already have a log entry
         $findExistingLogQuery = $db->getQuery(true)
             ->select($db->quoteName(['item_id', 'id']))
-            ->from($db->quoteName('#__workflow_automation_schedule'))
+            ->from($db->quoteName('#__workflow_item_state'))
             ->whereIn($db->quoteName('item_id'), $pksInt)
             ->where($db->quoteName('extension') . ' = :extension')
             ->bind(':extension', $context);
@@ -122,7 +122,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
             $logIds = array_values($toUpdate);
 
             $updateStageLogQuery = $db->getQuery(true)
-                ->update($db->quoteName('#__workflow_automation_schedule'))
+                ->update($db->quoteName('#__workflow_item_state'))
                 ->bind(':stageId', $toStageId, ParameterType::INTEGER)
                 ->bind(':enteredAt', $now)
                 ->bind(':triggeredBy', $triggeredBy);
@@ -139,7 +139,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         // Batch INSERT new rows
         if (!empty($toInsert)) {
             $insertStageLogQuery = $db->getQuery(true)
-                ->insert($db->quoteName('#__workflow_automation_schedule'))
+                ->insert($db->quoteName('#__workflow_item_state'))
                 ->columns($db->quoteName([
                     'item_id',
                     'extension',
@@ -163,7 +163,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
     }
 
     /**
-     * Seeds the schedule row for a brand new content item.
+     * Seeds the item state row for a brand new content item.
      *
      * onWorkflowAfterTransition does not fire when an item is first created, so the row that
      * records which stage it is in, and since when, is created here instead. Existing items
@@ -196,7 +196,7 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         $db          = $this->getDatabase();
         $now         = Factory::getDate()->toSql();
         $insertQuery = $db->getQuery(true)
-            ->insert($db->quoteName('#__workflow_automation_schedule'))
+            ->insert($db->quoteName('#__workflow_item_state'))
             ->columns($db->quoteName([
                 'item_id',
                 'extension',

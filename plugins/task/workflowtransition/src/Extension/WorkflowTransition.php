@@ -34,7 +34,7 @@ use Joomla\Plugin\Task\WorkflowTransition\Dto\DueAutomation;
 /**
  * Scheduler task plugin that fires automated workflow transitions.
  *
- * When the Joomla Scheduler runs this task, it queries workflow_automation_schedule
+ * When the Joomla Scheduler runs this task, it queries workflow_item_state
  * for items sitting in stages that have automation, works out live which of them are due,
  * then fires the appropriate * workflow transition for each one using Joomla's existing transition engine.
  *
@@ -158,7 +158,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * Fetches the automation rules that are due to be considered for their items this run.
      *
-     * Joins the schedule, transition, and rule tables so each row carries both the item's
+     * Joins the item state, transition, and rule tables so each row carries both the item's
      * schedule data and a rule that could fire it. Nothing is filtered by time here: whether a
      * rule is due is worked out live from entered_at, because a stored deadline goes stale the
      * moment a rule, an item, or a stage's automation changes. Rows are taken oldest first and
@@ -175,38 +175,38 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
         $overduePairsQuery = $db->getQuery(true)
             ->select([
-                $db->quoteName('wta.id', 'rule_id'),
-                $db->quoteName('wta.transition_id'),
+                $db->quoteName('war.id', 'rule_id'),
+                $db->quoteName('war.transition_id'),
                 $db->quoteName('wt.from_stage_id'),
                 $db->quoteName('wt.to_stage_id'),
-                $db->quoteName('wta.delay_value'),
-                $db->quoteName('wta.delay_unit'),
-                $db->quoteName('wta.rule_type'),
-                $db->quoteName('wta.cron_expression'),
-                $db->quoteName('wta.item_filter'),
-                $db->quoteName('wta.fire_condition'),
-                $db->quoteName('wta.ordering'),
-                $db->quoteName('was.item_id'),
-                $db->quoteName('was.extension'),
-                $db->quoteName('was.id', 'schedule_id'),
-                $db->quoteName('was.entered_at'),
-                $db->quoteName('wta.run_as_user_id'),
+                $db->quoteName('war.delay_value'),
+                $db->quoteName('war.delay_unit'),
+                $db->quoteName('war.rule_type'),
+                $db->quoteName('war.cron_expression'),
+                $db->quoteName('war.item_filter'),
+                $db->quoteName('war.fire_condition'),
+                $db->quoteName('war.ordering'),
+                $db->quoteName('wis.item_id'),
+                $db->quoteName('wis.extension'),
+                $db->quoteName('wis.id', 'item_state_id'),
+                $db->quoteName('wis.entered_at'),
+                $db->quoteName('war.run_as_user_id'),
             ])
-            ->from($db->quoteName('#__workflow_automation_schedule', 'was'))
+            ->from($db->quoteName('#__workflow_item_state', 'wis'))
             ->join(
                 'INNER',
                 $db->quoteName('#__workflow_transitions', 'wt'),
-                $db->quoteName('wt.from_stage_id') . ' = ' . $db->quoteName('was.stage_id')
+                $db->quoteName('wt.from_stage_id') . ' = ' . $db->quoteName('wis.stage_id')
             )
             ->join(
                 'INNER',
-                $db->quoteName('#__workflow_transition_automation', 'wta'),
-                $db->quoteName('wta.transition_id') . ' = ' . $db->quoteName('wt.id')
+                $db->quoteName('#__workflow_automation_rules', 'war'),
+                $db->quoteName('war.transition_id') . ' = ' . $db->quoteName('wt.id')
             )
-            ->where($db->quoteName('was.requires_intervention') . ' = 0')
-            ->where($db->quoteName('wta.published') . ' = 1')
-            ->order($db->quoteName('was.entered_at') . ' ASC')
-            ->order($db->quoteName('wta.ordering') . ' ASC')
+            ->where($db->quoteName('wis.requires_intervention') . ' = 0')
+            ->where($db->quoteName('war.published') . ' = 1')
+            ->order($db->quoteName('wis.entered_at') . ' ASC')
+            ->order($db->quoteName('war.ordering') . ' ASC')
             ->setLimit(self::MAX_CANDIDATES_PER_RUN);
 
         return array_map(
@@ -281,20 +281,20 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * Clearing requires_intervention later makes the item eligible again on the next run,
      * because its due-ness is recomputed from entered_at rather than read from a stored value.
      *
-     * @param integer $scheduleId The workflow_automation_schedule row ID.
+     * @param integer $itemStateId The #__workflow_item_state row id.
      *
      * @return void
      *
      * @since __DEPLOY_VERSION__
      */
-    private function markRequiresIntervention(int $scheduleId): void
+    private function markRequiresIntervention(int $itemStateId): void
     {
         $db          = $this->getDatabase();
         $updateQuery = $db->getQuery(true)
-            ->update($db->quoteName('#__workflow_automation_schedule'))
+            ->update($db->quoteName('#__workflow_item_state'))
             ->set($db->quoteName('requires_intervention') . ' = 1')
             ->where($db->quoteName('id') . ' = :id')
-            ->bind(':id', $scheduleId, ParameterType::INTEGER);
+            ->bind(':id', $itemStateId, ParameterType::INTEGER);
 
         $db->setQuery($updateQuery)->execute();
     }
@@ -417,7 +417,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                     . $failureNote . ($editLink !== '' ? ' - ' . $editLink : '');
 
                 $this->logAutomationRun($rule, 1, $failureNote);
-                $this->markRequiresIntervention($rule->schedule_id);
+                $this->markRequiresIntervention($rule->item_state_id);
             }
         } catch (\Throwable $error) {
             $editLink   = $this->itemEditLink($rule);
@@ -425,7 +425,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 . $error->getMessage() . ($editLink !== '' ? ' - ' . $editLink : '');
 
             $this->logAutomationRun($rule, 3, $error->getMessage());
-            $this->markRequiresIntervention($rule->schedule_id);
+            $this->markRequiresIntervention($rule->item_state_id);
         } finally {
             // Always restore the scheduler's original identity.
             $app->loadIdentity($originalUser);

@@ -133,7 +133,7 @@ class TransitionModel extends AdminModel
                     'item_filter',
                     'fire_condition',
                 ]))
-                ->from($db->quoteName('#__workflow_transition_automation'))
+                ->from($db->quoteName('#__workflow_automation_rules'))
                 ->where($db->quoteName('transition_id') . ' = :id')
                 ->bind(':id', $item->id, ParameterType::INTEGER)
                 ->setLimit(1);
@@ -410,7 +410,7 @@ class TransitionModel extends AdminModel
 
             $db->setQuery(
                 $db->getQuery(true)
-                    ->delete($db->quoteName('#__workflow_transition_automation'))
+                    ->delete($db->quoteName('#__workflow_automation_rules'))
                     ->where($db->quoteName('transition_id') . ' = :id')
                     ->bind(':id', $transitionId, ParameterType::INTEGER)
             )->execute();
@@ -433,7 +433,7 @@ class TransitionModel extends AdminModel
                     'modified_by'     => $user->id,
                 ];
 
-                $db->insertObject('#__workflow_transition_automation', $ruleRow);
+                $db->insertObject('#__workflow_automation_rules', $ruleRow);
             }
 
             $db->transactionCommit();

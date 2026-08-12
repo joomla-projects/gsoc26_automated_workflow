@@ -1269,10 +1269,10 @@ INSERT INTO `#__workflow_transitions` (`id`, `asset_id`, `published`, `ordering`
 (7, 64, 1, 7, 1, 'PUBLISH_AND_FEATURE', '', -1, 1, '{"publishing":"1","featuring":"1"}');
 
 --
--- Table structure for table `#__workflow_transition_automation`
+-- Table structure for table `#__workflow_automation_rules`
 --
 
-CREATE TABLE IF NOT EXISTS `#__workflow_transition_automation` (
+CREATE TABLE IF NOT EXISTS `#__workflow_automation_rules` (
 	`id` int NOT NULL AUTO_INCREMENT,
 	`transition_id` int NOT NULL COMMENT 'Foreign Key to #__workflow_transitions.id',
 	`published` tinyint NOT NULL DEFAULT 0,
@@ -1295,10 +1295,10 @@ CREATE TABLE IF NOT EXISTS `#__workflow_transition_automation` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 DEFAULT COLLATE=utf8mb4_unicode_ci;
 
 --
--- Table structure for table `#__workflow_automation_schedule`
+-- Table structure for table `#__workflow_item_state`
 --
 
-CREATE TABLE IF NOT EXISTS `#__workflow_automation_schedule` (
+CREATE TABLE IF NOT EXISTS `#__workflow_item_state` (
 	`id` int NOT NULL AUTO_INCREMENT,
 	`item_id` int NOT NULL DEFAULT 0 COMMENT 'Extension table id value',
 	`extension` varchar(50) NOT NULL,
@@ -1318,7 +1318,7 @@ CREATE TABLE IF NOT EXISTS `#__workflow_automation_schedule` (
 
 CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (
 	`id` int NOT NULL AUTO_INCREMENT,
-	`rule_id` int DEFAULT NULL COMMENT 'Foreign Key to #__workflow_transition_automation.id',
+	`rule_id` int DEFAULT NULL COMMENT 'Foreign Key to #__workflow_automation_rules.id',
 	`item_id` int NOT NULL DEFAULT 0,
 	`extension` varchar(50) NOT NULL,
 	`transition_id` int NOT NULL,

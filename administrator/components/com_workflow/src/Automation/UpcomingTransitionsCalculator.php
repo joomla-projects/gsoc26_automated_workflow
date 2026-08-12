@@ -232,7 +232,7 @@ final class UpcomingTransitionsCalculator
                 $db->quoteName('#__workflows', 'w'),
                 $db->quoteName('w.id') . ' = ' . $db->quoteName('wt.workflow_id')
             )
-            ->where($db->quoteName('was.extension') . ' = :extension')
+            ->where($db->quoteName('wis.extension') . ' = :extension')
             ->bind(':extension', $extension);
 
         return $db->setQuery($query)->loadObjectList() ?: [];
@@ -252,8 +252,8 @@ final class UpcomingTransitionsCalculator
     {
         $db    = $this->database;
         $query = $this->baseRowsQuery()
-            ->where($db->quoteName('was.item_id') . ' = :itemId')
-            ->where($db->quoteName('was.extension') . ' = :extension')
+            ->where($db->quoteName('wis.item_id') . ' = :itemId')
+            ->where($db->quoteName('wis.extension') . ' = :extension')
             ->bind(':itemId', $itemId, ParameterType::INTEGER)
             ->bind(':extension', $extension);
 
@@ -274,35 +274,35 @@ final class UpcomingTransitionsCalculator
         return $db->getQuery(true)
             ->select(
                 [
-                    $db->quoteName('was.item_id'),
-                    $db->quoteName('was.extension'),
-                    $db->quoteName('was.entered_at'),
-                    $db->quoteName('was.requires_intervention'),
+                    $db->quoteName('wis.item_id'),
+                    $db->quoteName('wis.extension'),
+                    $db->quoteName('wis.entered_at'),
+                    $db->quoteName('wis.requires_intervention'),
                     $db->quoteName('wt.id', 'transition_id'),
                     $db->quoteName('wt.from_stage_id'),
                     $db->quoteName('wt.to_stage_id'),
                     $db->quoteName('sfrom.title', 'from_stage_title'),
                     $db->quoteName('sto.title', 'to_stage_title'),
-                    $db->quoteName('wta.rule_type'),
-                    $db->quoteName('wta.delay_value'),
-                    $db->quoteName('wta.delay_unit'),
-                    $db->quoteName('wta.cron_expression'),
-                    $db->quoteName('wta.item_filter'),
-                    $db->quoteName('wta.fire_condition'),
-                    $db->quoteName('wta.ordering'),
+                    $db->quoteName('war.rule_type'),
+                    $db->quoteName('war.delay_value'),
+                    $db->quoteName('war.delay_unit'),
+                    $db->quoteName('war.cron_expression'),
+                    $db->quoteName('war.item_filter'),
+                    $db->quoteName('war.fire_condition'),
+                    $db->quoteName('war.ordering'),
                     $db->quoteName('c.title', 'item_title'),
                 ]
             )
-            ->from($db->quoteName('#__workflow_automation_schedule', 'was'))
+            ->from($db->quoteName('#__workflow_item_state', 'wis'))
             ->join(
                 'INNER',
                 $db->quoteName('#__workflow_transitions', 'wt'),
-                $db->quoteName('wt.from_stage_id') . ' = ' . $db->quoteName('was.stage_id')
+                $db->quoteName('wt.from_stage_id') . ' = ' . $db->quoteName('wis.stage_id')
             )
             ->join(
                 'INNER',
-                $db->quoteName('#__workflow_transition_automation', 'wta'),
-                $db->quoteName('wta.transition_id') . ' = ' . $db->quoteName('wt.id')
+                $db->quoteName('#__workflow_automation_rules', 'war'),
+                $db->quoteName('war.transition_id') . ' = ' . $db->quoteName('wt.id')
             )
             ->join(
                 'LEFT',
@@ -317,10 +317,10 @@ final class UpcomingTransitionsCalculator
             ->join(
                 'LEFT',
                 $db->quoteName('#__content', 'c'),
-                $db->quoteName('c.id') . ' = ' . $db->quoteName('was.item_id')
-                    . ' AND ' . $db->quoteName('was.extension') . ' = ' . $db->quote('com_content.article')
+                $db->quoteName('c.id') . ' = ' . $db->quoteName('wis.item_id')
+                    . ' AND ' . $db->quoteName('wis.extension') . ' = ' . $db->quote('com_content.article')
             )
-            ->where($db->quoteName('wta.published') . ' = 1')
+            ->where($db->quoteName('war.published') . ' = 1')
             // Trashed and archived items are out of circulation, so they have no upcoming
             // transition to preview. The state column is null for extensions other than
             // com_content, which the left join above leaves unmatched; those are kept.
@@ -329,7 +329,7 @@ final class UpcomingTransitionsCalculator
                 . $db->quoteName('c.state') . ' NOT IN ('
                 . self::CONTENT_STATE_TRASHED . ', ' . self::CONTENT_STATE_ARCHIVED . '))'
             )
-            ->order($db->quoteName('wta.ordering') . ' ASC');
+            ->order($db->quoteName('war.ordering') . ' ASC');
     }
 
     /**
@@ -556,8 +556,8 @@ final class UpcomingTransitionsCalculator
     {
         $db                 = $this->database;
         $scheduledRowsQuery = $this->baseRowsQuery()
-            ->whereIn($db->quoteName('was.item_id'), $itemIds)
-            ->where($db->quoteName('was.extension') . ' = :extension')
+            ->whereIn($db->quoteName('wis.item_id'), $itemIds)
+            ->where($db->quoteName('wis.extension') . ' = :extension')
             ->bind(':extension', $extension);
 
         return $db->setQuery($scheduledRowsQuery)->loadObjectList() ?: [];

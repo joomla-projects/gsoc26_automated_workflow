@@ -1291,7 +1291,7 @@ INSERT INTO "#__workflow_transitions" ("id", "asset_id", "published", "ordering"
 
 SELECT setval('#__workflow_transitions_id_seq', 8, false);
 
-CREATE TABLE IF NOT EXISTS "#__workflow_transition_automation" (
+CREATE TABLE IF NOT EXISTS "#__workflow_automation_rules" (
     "id" serial NOT NULL,
     "transition_id" integer NOT NULL,
     "published" smallint DEFAULT 0 NOT NULL,
@@ -1310,25 +1310,25 @@ CREATE TABLE IF NOT EXISTS "#__workflow_transition_automation" (
     PRIMARY KEY ("id")
 );
 
-CREATE INDEX "#__workflow_transition_automation_idx_transition" ON "#__workflow_transition_automation" ("transition_id");
+CREATE INDEX "#__workflow_automation_rules_idx_transition" ON "#__workflow_automation_rules" ("transition_id");
 
-CREATE INDEX "#__workflow_transition_automation_idx_published" ON "#__workflow_transition_automation" ("published");
+CREATE INDEX "#__workflow_automation_rules_idx_published" ON "#__workflow_automation_rules" ("published");
 
-CREATE INDEX "#__workflow_transition_automation_idx_run_as" ON "#__workflow_transition_automation" ("run_as_user_id");
+CREATE INDEX "#__workflow_automation_rules_idx_run_as" ON "#__workflow_automation_rules" ("run_as_user_id");
 
-COMMENT ON COLUMN "#__workflow_transition_automation"."transition_id" IS 'Foreign Key to #__workflow_transitions.id';
+COMMENT ON COLUMN "#__workflow_automation_rules"."transition_id" IS 'Foreign Key to #__workflow_transitions.id';
 
-COMMENT ON COLUMN "#__workflow_transition_automation"."rule_type" IS 'delay or cron';
+COMMENT ON COLUMN "#__workflow_automation_rules"."rule_type" IS 'delay or cron';
 
-COMMENT ON COLUMN "#__workflow_transition_automation"."delay_unit" IS 'minutes, hours, days, months';
+COMMENT ON COLUMN "#__workflow_automation_rules"."delay_unit" IS 'minutes, hours, days, months';
 
-COMMENT ON COLUMN "#__workflow_transition_automation"."item_filter" IS 'JSON filter tree: which items this rule applies to (evaluated at selection)';
+COMMENT ON COLUMN "#__workflow_automation_rules"."item_filter" IS 'JSON filter tree: which items this rule applies to (evaluated at selection)';
 
-COMMENT ON COLUMN "#__workflow_transition_automation"."fire_condition" IS 'JSON expression tree: gate evaluated live at fire time';
+COMMENT ON COLUMN "#__workflow_automation_rules"."fire_condition" IS 'JSON expression tree: gate evaluated live at fire time';
 
-COMMENT ON COLUMN "#__workflow_transition_automation"."run_as_user_id" IS 'User identity used to execute the transition';
+COMMENT ON COLUMN "#__workflow_automation_rules"."run_as_user_id" IS 'User identity used to execute the transition';
 
-CREATE TABLE IF NOT EXISTS "#__workflow_automation_schedule" (
+CREATE TABLE IF NOT EXISTS "#__workflow_item_state" (
     "id" serial NOT NULL,
     "item_id" integer DEFAULT 0 NOT NULL,
     "extension" varchar(50) NOT NULL,
@@ -1337,22 +1337,22 @@ CREATE TABLE IF NOT EXISTS "#__workflow_automation_schedule" (
     "triggered_by" varchar(20) DEFAULT 'manual' NOT NULL,
     "requires_intervention" smallint DEFAULT 0 NOT NULL,
     PRIMARY KEY ("id"),
-    CONSTRAINT "#__workflow_automation_schedule_idx_item_extension" UNIQUE ("item_id", "extension")
+    CONSTRAINT "#__workflow_item_state_idx_item_extension" UNIQUE ("item_id", "extension")
 );
 
-CREATE INDEX "#__workflow_automation_schedule_idx_stage_entered" ON "#__workflow_automation_schedule" ("stage_id", "entered_at");
+CREATE INDEX "#__workflow_item_state_idx_stage_entered" ON "#__workflow_item_state" ("stage_id", "entered_at");
 
-CREATE INDEX "#__workflow_automation_schedule_idx_requires_intervention" ON "#__workflow_automation_schedule" ("requires_intervention");
+CREATE INDEX "#__workflow_item_state_idx_requires_intervention" ON "#__workflow_item_state" ("requires_intervention");
 
-COMMENT ON COLUMN "#__workflow_automation_schedule"."item_id" IS 'Extension table id value';
+COMMENT ON COLUMN "#__workflow_item_state"."item_id" IS 'Extension table id value';
 
-COMMENT ON COLUMN "#__workflow_automation_schedule"."stage_id" IS 'Foreign Key to #__workflow_stages.id';
+COMMENT ON COLUMN "#__workflow_item_state"."stage_id" IS 'Foreign Key to #__workflow_stages.id';
 
-COMMENT ON COLUMN "#__workflow_automation_schedule"."entered_at" IS 'When the item arrived in stage_id';
+COMMENT ON COLUMN "#__workflow_item_state"."entered_at" IS 'When the item arrived in stage_id';
 
-COMMENT ON COLUMN "#__workflow_automation_schedule"."triggered_by" IS 'Determine if a transition was triggered manually or by the automation';
+COMMENT ON COLUMN "#__workflow_item_state"."triggered_by" IS 'Determine if a transition was triggered manually or by the automation';
 
-COMMENT ON COLUMN "#__workflow_automation_schedule"."requires_intervention" IS 'Set when an automated transition failed; excluded from the scheduler until an admin clears it';
+COMMENT ON COLUMN "#__workflow_item_state"."requires_intervention" IS 'Set when an automated transition failed; excluded from the scheduler until an admin clears it';
 
 CREATE TABLE IF NOT EXISTS "#__workflow_automation_log" (
     "id" serial NOT NULL,
@@ -1378,6 +1378,6 @@ CREATE INDEX "#__workflow_automation_log_idx_executed_at" ON "#__workflow_automa
 
 CREATE INDEX "#__workflow_automation_log_idx_exit_code" ON "#__workflow_automation_log" ("exit_code");
 
-COMMENT ON COLUMN "#__workflow_automation_log"."rule_id" IS 'Foreign Key to #__workflow_transition_automation.id';
+COMMENT ON COLUMN "#__workflow_automation_log"."rule_id" IS 'Foreign Key to #__workflow_automation_rules.id';
 
 COMMENT ON COLUMN "#__workflow_automation_log"."exit_code" IS '0 ok, 1 permission denied, 2 invalid transition, 3 exception';
