@@ -138,7 +138,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         }
 
         // Stamped before anything is evaluated, not after, so a row whose condition throws
-        // still moves to the back of the queue instead of being re-picked every run.
+        // an exception still moves to the back of the queue instead of being re-picked every run.
         $this->markCandidatesChecked($candidates, $now);
 
         // Group the candidate rules by the item they might act on, so we pick one winner per item.
