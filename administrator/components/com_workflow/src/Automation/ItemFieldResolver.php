@@ -46,31 +46,34 @@ final class ItemFieldResolver
     }
 
     /**
-     * Preloaded field values, keyed by item id. Populated by preload() so a run of many
-     * items costs a fixed number of queries instead of one lookup per item.
+     * Preloaded field values, keyed by extension then item id. Populated by preload() so a run
+     * of many items costs a fixed number of queries instead of one lookup per item.
      *
-     * @var    array<int, int[]>
+     * The extension is part of the key because an item id is only unique within its own
+     * extension.
+     *
+     * @var    array<string, array<int, int[]>>
      * @since  __DEPLOY_VERSION__
      */
     private array $preloadedTags = [];
 
     /**
-     * @var    array<int, integer>
+     * @var    array<string, array<int, integer>>
      * @since  __DEPLOY_VERSION__
      */
     private array $preloadedCategories = [];
 
     /**
-     * @var    array<int, int[]>
+     * @var    array<string, array<int, int[]>>
      * @since  __DEPLOY_VERSION__
      */
     private array $preloadedAuthorGroups = [];
 
     /**
-     * Which item ids preload() has covered. Needed to tell "preloaded, and the answer is
-     * empty" apart from "never preloaded, go and ask the database".
+     * Which item ids preload() has covered, per extension. Needed to tell "preloaded, and the
+     * answer is empty" apart from "never preloaded, go and ask the database".
      *
-     * @var    array<int, boolean>
+     * @var    array<string, array<int, boolean>>
      * @since  __DEPLOY_VERSION__
      */
     private array $preloadedItems = [];
@@ -100,16 +103,24 @@ final class ItemFieldResolver
 
         $db = $this->database;
 
+        // The tag map's primary key starts with type_id and nothing indexes type_alias, so
+        // filtering by the alias scans the whole table. Resolving the alias to its id in a
+        // subquery lets the primary key do the work, and the subquery uses the alias index.
+
+        $tagTypeSubquery = '(SELECT ' . $db->quoteName('ct.type_id')
+            . ' FROM ' . $this->database->quoteName('#__content_types', 'ct')
+            . ' WHERE ' . $this->database->quoteName('ct.type_alias') . ' = :extension)';
+
         // Tags for the whole batch in one query.
         $tagQuery = $db->getQuery(true)
             ->select($db->quoteName(['content_item_id', 'tag_id']))
             ->from($db->quoteName('#__contentitem_tag_map'))
-            ->where($db->quoteName('type_alias') . ' = :extension')
+            ->where($db->quoteName('type_id') . ' = ' . $tagTypeSubquery)
             ->whereIn($db->quoteName('content_item_id'), $itemIds)
             ->bind(':extension', $extension);
 
         foreach ($db->setQuery($tagQuery)->loadObjectList() ?: [] as $tagRow) {
-            $this->preloadedTags[(int) $tagRow->content_item_id][] = (int) $tagRow->tag_id;
+            $this->preloadedTags[$extension][(int) $tagRow->content_item_id][] = (int) $tagRow->tag_id;
         }
 
         // Category and author come from the same table, so one query answers both.
@@ -122,7 +133,7 @@ final class ItemFieldResolver
                 ->whereIn($db->quoteName('id'), $itemIds);
 
             foreach ($db->setQuery($contentQuery)->loadObjectList() ?: [] as $contentRow) {
-                $this->preloadedCategories[(int) $contentRow->id] = (int) $contentRow->catid;
+                $this->preloadedCategories[$extension][(int) $contentRow->id] = (int) $contentRow->catid;
 
                 if ((int) $contentRow->created_by > 0) {
                     $itemIdsByAuthor[(int) $contentRow->created_by][] = (int) $contentRow->id;
@@ -145,13 +156,13 @@ final class ItemFieldResolver
 
             foreach ($itemIdsByAuthor as $authorId => $authoredItemIds) {
                 foreach ($authoredItemIds as $authoredItemId) {
-                    $this->preloadedAuthorGroups[$authoredItemId] = $groupsByAuthor[$authorId] ?? [];
+                    $this->preloadedAuthorGroups[$extension][$authoredItemId] = $groupsByAuthor[$authorId] ?? [];
                 }
             }
         }
 
         foreach ($itemIds as $itemId) {
-            $this->preloadedItems[$itemId] = true;
+            $this->preloadedItems[$extension][$itemId] = true;
         }
     }
 
@@ -239,14 +250,18 @@ final class ItemFieldResolver
      */
     private function loadTagIds(int $itemId, string $extension): array
     {
-        if (isset($this->preloadedItems[$itemId])) {
-            return $this->preloadedTags[$itemId] ?? [];
+        if (isset($this->preloadedItems[$extension][$itemId])) {
+            return $this->preloadedTags[$extension][$itemId] ?? [];
         }
+
+        $tagTypeSubquery = '(SELECT ' . $this->database->quoteName('ct.type_id')
+            . ' FROM ' . $this->database->quoteName('#__content_types', 'ct')
+            . ' WHERE ' . $this->database->quoteName('ct.type_alias') . ' = :extension)';
 
         $loadTagsQuery = $this->database->getQuery(true)
             ->select($this->database->quoteName('tag_id'))
             ->from($this->database->quoteName('#__contentitem_tag_map'))
-            ->where($this->database->quoteName('type_alias') . ' = :extension')
+            ->where($this->database->quoteName('type_id') . ' = ' . $tagTypeSubquery)
             ->where($this->database->quoteName('content_item_id') . ' = :itemId')
             ->bind(':extension', $extension)
             ->bind(':itemId', $itemId, ParameterType::INTEGER);
@@ -270,8 +285,8 @@ final class ItemFieldResolver
             return 0;
         }
 
-        if (isset($this->preloadedItems[$itemId])) {
-            return $this->preloadedCategories[$itemId] ?? 0;
+        if (isset($this->preloadedItems[$extension][$itemId])) {
+            return $this->preloadedCategories[$extension][$itemId] ?? 0;
         }
 
         $loadCategoryQuery = $this->database->getQuery(true)
@@ -299,8 +314,8 @@ final class ItemFieldResolver
             return [];
         }
 
-        if (isset($this->preloadedItems[$itemId])) {
-            return $this->preloadedAuthorGroups[$itemId] ?? [];
+        if (isset($this->preloadedItems[$extension][$itemId])) {
+            return $this->preloadedAuthorGroups[$extension][$itemId] ?? [];
         }
 
         $authorQuery = $this->database->getQuery(true)
