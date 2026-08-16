@@ -56,10 +56,10 @@
       root.addEventListener("click", (event) => this.onClick(event));
       root.addEventListener("change", (event) => this.onChange(event));
 
-      // A typed value otherwise only commits when the box loses focus, so a rule
-      // saved straight from the keyboard would store the value as it was before
-      // the last edit. Restricted to inputs: doing this for a select would
-      // re-render the row mid-interaction.
+      // A typed value otherwise only commits when the box loses focus, so a rule saved from
+      // the keyboard would store the value as it was before the last edit. Only inputs need
+      // this: a select already commits on change, and the multiselect is wrapped in a
+      // fancy-select that fires its own events.
       root.addEventListener("input", (event) => {
         if (
           event.target.tagName === "INPUT" &&
@@ -545,7 +545,7 @@
       // browser offers the right keyboard and rejects letters.
       if (type === "date" || type === "text" || type === "number") {
         return el("input", {
-          type: type === "date" ? "date" : type,
+          type: type,
           class: "form-control",
           "data-role": "value",
           value: node.value === null || node.value === undefined ? "" : String(node.value),

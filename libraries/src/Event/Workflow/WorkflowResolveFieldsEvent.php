@@ -35,7 +35,7 @@ class WorkflowResolveFieldsEvent extends Event
      * Constructor.
      *
      * @param   string  $name       The event name.
-     * @param   array   $arguments  Must contain 'field', 'itemIds', 'context' and may contain
+     * @param   array   $arguments  Must contain 'field', 'itemIds', 'extension' and may contain
      *                              'evaluationTime'.
      *
      * @since   __DEPLOY_VERSION__
@@ -73,15 +73,15 @@ class WorkflowResolveFieldsEvent extends Event
     }
 
     /**
-     * The workflow context, e.g. com_content.article.
+     * The workflow extension, e.g. com_content.article.
      *
      * @return  string
      *
      * @since   __DEPLOY_VERSION__
      */
-    public function getContext(): string
+    public function getExtension(): string
     {
-        return (string) ($this->arguments['context'] ?? '');
+        return (string) ($this->arguments['extension'] ?? '');
     }
 
     /**

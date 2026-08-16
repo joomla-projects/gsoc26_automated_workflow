@@ -19,6 +19,7 @@ use Joomla\CMS\Factory;
 use Joomla\CMS\Form\FormField;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Plugin\PluginHelper;
+use Joomla\Component\Workflow\Administrator\Automation\BuiltinConditionFields;
 use Joomla\Database\DatabaseInterface;
 use Joomla\Database\ParameterType;
 
@@ -89,38 +90,45 @@ class ConditionbuilderField extends FormField
     }
 
     /**
-     * Asks the workflow plugins which checks may be offered here.
+     * The checks that may be offered here.
      *
-     * Nothing is hardcoded: the menu is whatever the installed plugins declare for this
-     * context, filtered to the scope this instance is for. Core's own checks arrive the same
-     * way, through plg_workflow_conditionfields.
+     * Joomla's own checks come from BuiltinConditionFields directly. The event is then
+     * dispatched so installed extensions can add their own, and the two lists are
+     * merged with the built-in ones taking precedence.
      *
-     * @return  array<string, array>  Check definitions keyed by name.
+     * @return array<string, array> Check definitions keyed by name.
      *
-     * @since   __DEPLOY_VERSION__
+     * @since __DEPLOY_VERSION__
      */
     private function getAvailableFields(): array
     {
-        PluginHelper::importPlugin('workflow');
+        $app       = Factory::getApplication();
+        $extension = $this->resolveContext($app);
+        $database  = Factory::getContainer()->get(DatabaseInterface::class);
 
-        $app     = Factory::getApplication();
-        $context = $this->resolveContext($app);
+        $builtInFields = (new BuiltinConditionFields($database))->declarations($extension);
+
+        PluginHelper::importPlugin('workflow');
 
         $event = new WorkflowConditionFieldsEvent(
             'onWorkflowListConditionFields',
-            ['context' => $context]
+            ['extension' => $extension]
         );
 
         $app->getDispatcher()->dispatch($event->getName(), $event);
 
-        // A filter says which items a rule covers, so it offers item checks; a condition says
-        // when a due rule may run, so it offers moment checks.
+        // Union rather than array_merge: where both declare the same name, the left
+        // operand's entry survives, so a built-in cannot be shadowed by an installed extension.
+        $fields = $builtInFields + $event->getFields();
+
+        // A filter says which items a rule covers, so it offers item checks. A
+        // condition says when a due rule may run, so it offers moment checks.
         $wantedScope = (string) $this->element['mode'] === 'filter'
             ? WorkflowConditionFieldsEvent::SCOPE_ITEM
             : WorkflowConditionFieldsEvent::SCOPE_MOMENT;
 
         return array_filter(
-            $event->getFields(),
+            $fields,
             static fn (array $field): bool => $field['scope'] === $wantedScope
         );
     }
@@ -200,20 +208,19 @@ class ConditionbuilderField extends FormField
     private function getOperatorChoices(array $fields): array
     {
         $operatorLabels = [
-            'is'       => Text::_('COM_WORKFLOW_AUTOMATION_OP_IS'),
-            'is not'   => Text::_('COM_WORKFLOW_AUTOMATION_OP_IS_NOT'),
-            'in'       => Text::_('COM_WORKFLOW_AUTOMATION_OP_IN'),
-            'not in'   => Text::_('COM_WORKFLOW_AUTOMATION_OP_NOT_IN'),
-            'has any'  => Text::_('COM_WORKFLOW_AUTOMATION_OP_HAS_ANY'),
-            'has all'  => Text::_('COM_WORKFLOW_AUTOMATION_OP_HAS_ALL'),
-            'has none' => Text::_('COM_WORKFLOW_AUTOMATION_OP_HAS_NONE'),
-            'before'   => Text::_('COM_WORKFLOW_AUTOMATION_OP_BEFORE'),
-            'after'    => Text::_('COM_WORKFLOW_AUTOMATION_OP_AFTER'),
-            'on'       => Text::_('COM_WORKFLOW_AUTOMATION_OP_ON'),
-            'not on'   => Text::_('COM_WORKFLOW_AUTOMATION_OP_NOT_ON'),
-
-            'greater than' => Text::_('COM_WORKFLOW_AUTOMATION_OP_GREATER_THAN'),
-            'less than'    => Text::_('COM_WORKFLOW_AUTOMATION_OP_LESS_THAN'),
+            WorkflowConditionFieldsEvent::OPERATOR_IS           => Text::_('COM_WORKFLOW_AUTOMATION_OP_IS'),
+            WorkflowConditionFieldsEvent::OPERATOR_IS_NOT       => Text::_('COM_WORKFLOW_AUTOMATION_OP_IS_NOT'),
+            WorkflowConditionFieldsEvent::OPERATOR_IN           => Text::_('COM_WORKFLOW_AUTOMATION_OP_IN'),
+            WorkflowConditionFieldsEvent::OPERATOR_NOT_IN       => Text::_('COM_WORKFLOW_AUTOMATION_OP_NOT_IN'),
+            WorkflowConditionFieldsEvent::OPERATOR_HAS_ANY      => Text::_('COM_WORKFLOW_AUTOMATION_OP_HAS_ANY'),
+            WorkflowConditionFieldsEvent::OPERATOR_HAS_ALL      => Text::_('COM_WORKFLOW_AUTOMATION_OP_HAS_ALL'),
+            WorkflowConditionFieldsEvent::OPERATOR_HAS_NONE     => Text::_('COM_WORKFLOW_AUTOMATION_OP_HAS_NONE'),
+            WorkflowConditionFieldsEvent::OPERATOR_BEFORE       => Text::_('COM_WORKFLOW_AUTOMATION_OP_BEFORE'),
+            WorkflowConditionFieldsEvent::OPERATOR_AFTER        => Text::_('COM_WORKFLOW_AUTOMATION_OP_AFTER'),
+            WorkflowConditionFieldsEvent::OPERATOR_ON           => Text::_('COM_WORKFLOW_AUTOMATION_OP_ON'),
+            WorkflowConditionFieldsEvent::OPERATOR_NOT_ON       => Text::_('COM_WORKFLOW_AUTOMATION_OP_NOT_ON'),
+            WorkflowConditionFieldsEvent::OPERATOR_GREATER_THAN => Text::_('COM_WORKFLOW_AUTOMATION_OP_GREATER_THAN'),
+            WorkflowConditionFieldsEvent::OPERATOR_LESS_THAN    => Text::_('COM_WORKFLOW_AUTOMATION_OP_LESS_THAN'),
         ];
 
         $choices = [];

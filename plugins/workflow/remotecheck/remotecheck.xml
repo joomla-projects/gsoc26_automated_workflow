@@ -27,6 +27,7 @@
 					label="PLG_WORKFLOW_REMOTECHECK_CHECKLABEL_LABEL"
 					description="PLG_WORKFLOW_REMOTECHECK_CHECKLABEL_DESC"
 					filter="string"
+					required="true"
 				/>
 				<field
 					name="endpoint"

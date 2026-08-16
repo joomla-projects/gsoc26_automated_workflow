@@ -49,10 +49,63 @@ class WorkflowConditionFieldsEvent extends Event
     public const SCOPE_MOMENT = 'moment';
 
     /**
+     * The comparisons a check may declare support for. com_workflow implements every one of
+     * these.
+     * The values are the strings stored inside a saved rule, so they must not change once
+     * a rule can exist that uses them.
+     *
+     * @var string
+     * @since __DEPLOY_VERSION__
+     */
+    public const OPERATOR_IS = 'is';
+
+    public const OPERATOR_IS_NOT = 'is not';
+
+    public const OPERATOR_IN = 'in';
+
+    public const OPERATOR_NOT_IN = 'not in';
+
+    public const OPERATOR_HAS_ANY = 'has any';
+
+    public const OPERATOR_HAS_ALL = 'has all';
+
+    public const OPERATOR_HAS_NONE = 'has none';
+
+    public const OPERATOR_BEFORE = 'before';
+
+    public const OPERATOR_AFTER = 'after';
+
+    public const OPERATOR_ON = 'on';
+
+    public const OPERATOR_NOT_ON = 'not on';
+
+    public const OPERATOR_GREATER_THAN = 'greater than';
+
+    public const OPERATOR_LESS_THAN = 'less than';
+
+    /**
+     * How a check's value is entered. Select and multiselect pick from the options
+     * a check supplies.
+     *
+     * @var string
+     * @since __DEPLOY_VERSION__
+     */
+
+    public const VALUE_SELECT = 'select';
+
+    public const VALUE_MULTISELECT = 'multiselect';
+
+    public const VALUE_DATE = 'date';
+
+    public const VALUE_TEXT = 'text';
+
+    public const VALUE_NUMBER = 'number';
+
+    /**
      * Constructor.
      *
      * @param   string  $name       The event name.
-     * @param   array   $arguments  Must contain 'context', e.g. com_content.article.
+     * @param   array   $arguments  Must contain 'extension', e.g. com_content.article.
      *
      * @since   __DEPLOY_VERSION__
      */
@@ -64,15 +117,15 @@ class WorkflowConditionFieldsEvent extends Event
     }
 
     /**
-     * The workflow context the builder is being drawn for, e.g. com_content.article.
+     * The workflow extension the builder is being drawn for, e.g. com_content.article.
      *
      * @return  string
      *
      * @since   __DEPLOY_VERSION__
      */
-    public function getContext(): string
+    public function getExtension(): string
     {
-        return (string) ($this->arguments['context'] ?? '');
+        return (string) ($this->arguments['extension'] ?? '');
     }
 
     /**

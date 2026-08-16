@@ -102,7 +102,7 @@ final class RemoteCheck extends CMSPlugin implements SubscriberInterface, CacheC
      */
     public function listConditionFields(WorkflowConditionFieldsEvent $event): void
     {
-        if ($event->getContext() !== self::CONTEXT) {
+        if ($event->getExtension() !== self::CONTEXT) {
             return;
         }
 
@@ -110,18 +110,24 @@ final class RemoteCheck extends CMSPlugin implements SubscriberInterface, CacheC
         // language file has been auto-loaded.
         $this->loadLanguage();
 
-        // The site names the check after whatever its service actually judges, because
-        // "Approved by external service" means nothing to someone whose service reports
-        // fact-checking status. The stored key never changes, so renaming it here does not
-        // break rules that already use it.
-        $label = trim((string) $this->params->get('checklabel', ''));
+        // An unconfigured plugin cannot answer anything, so it offers nothing rather than
+        // appearing in the builder under a generic name and failing when a rule uses it.
+        $label    = trim((string) $this->params->get('checklabel', ''));
+        $endpoint = trim((string) $this->params->get('endpoint', ''));
+
+        if ($label === '' || $endpoint === '') {
+            return;
+        }
 
         $event->addField(
             self::FIELD,
-            $label !== '' ? $label : Text::_('PLG_WORKFLOW_REMOTECHECK_FIELD_DEFAULT_LABEL'),
+            $label,
             WorkflowConditionFieldsEvent::SCOPE_ITEM,
-            ['is', 'is not'],
-            'select',
+            [
+                WorkflowConditionFieldsEvent::OPERATOR_IS,
+                WorkflowConditionFieldsEvent::OPERATOR_IS_NOT,
+            ],
+            WorkflowConditionFieldsEvent::VALUE_SELECT,
             [
                 ['value' => '1', 'label' => Text::_('JYES')],
                 ['value' => '0', 'label' => Text::_('JNO')],
@@ -140,7 +146,7 @@ final class RemoteCheck extends CMSPlugin implements SubscriberInterface, CacheC
      */
     public function resolveConditionFields(WorkflowResolveFieldsEvent $event): void
     {
-        if ($event->getField() !== self::FIELD || $event->getContext() !== self::CONTEXT) {
+        if ($event->getField() !== self::FIELD || $event->getExtension() !== self::CONTEXT) {
             return;
         }
 
