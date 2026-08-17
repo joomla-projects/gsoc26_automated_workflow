@@ -103,7 +103,7 @@ class ConditionbuilderField extends FormField
     private function getAvailableFields(): array
     {
         $app       = Factory::getApplication();
-        $extension = $this->resolveContext($app);
+        $extension = $this->resolveExtension($app);
         $database  = Factory::getContainer()->get(DatabaseInterface::class);
 
         $builtInFields = (new BuiltinConditionFields($database))->declarations($extension);
@@ -145,9 +145,9 @@ class ConditionbuilderField extends FormField
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function resolveContext($app): string
+    private function resolveExtension($app): string
     {
-        // The workflow row carries the full context including the section, e.g.
+        // The workflow row carries the full extension including the section, e.g.
         // com_content.article. The request only carries the component part, because
         // com_workflow splits the two, so prefer the stored value.
         $workflowId = (int) $app->getInput()->getInt('workflow_id');
@@ -167,9 +167,9 @@ class ConditionbuilderField extends FormField
             }
         }
 
-        $context = (string) $app->getInput()->getCmd('extension', '');
+        $requestedExtension = (string) $app->getInput()->getCmd('extension', '');
 
-        return $context !== '' ? $context : 'com_content.article';
+        return $requestedExtension !== '' ? $requestedExtension : 'com_content.article';
     }
 
     /**

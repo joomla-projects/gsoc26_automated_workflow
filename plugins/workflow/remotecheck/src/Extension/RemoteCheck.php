@@ -62,12 +62,12 @@ final class RemoteCheck extends CMSPlugin implements SubscriberInterface, CacheC
     private const FIELD = 'remotecheck.flag';
 
     /**
-     * The only context this service knows anything about.
+     * The only workflow extension this service knows anything about.
      *
      * @var    string
      * @since  __DEPLOY_VERSION__
      */
-    private const CONTEXT = 'com_content.article';
+    private const EXTENSION = 'com_content.article';
 
     /**
      * Answers already fetched during this request, so evaluating several rules over the same
@@ -102,7 +102,7 @@ final class RemoteCheck extends CMSPlugin implements SubscriberInterface, CacheC
      */
     public function listConditionFields(WorkflowConditionFieldsEvent $event): void
     {
-        if ($event->getExtension() !== self::CONTEXT) {
+        if ($event->getExtension() !== self::EXTENSION) {
             return;
         }
 
@@ -146,7 +146,7 @@ final class RemoteCheck extends CMSPlugin implements SubscriberInterface, CacheC
      */
     public function resolveConditionFields(WorkflowResolveFieldsEvent $event): void
     {
-        if ($event->getField() !== self::FIELD || $event->getExtension() !== self::CONTEXT) {
+        if ($event->getField() !== self::FIELD || $event->getExtension() !== self::EXTENSION) {
             return;
         }
 
