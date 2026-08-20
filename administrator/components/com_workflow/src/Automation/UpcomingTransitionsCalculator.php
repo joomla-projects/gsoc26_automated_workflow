@@ -32,23 +32,6 @@ use Joomla\Database\QueryInterface;
 final class UpcomingTransitionsCalculator
 {
     /**
-     * The com_content publishing states that take an item out of circulation, so it has no
-     * upcoming transition worth previewing. These mirror ContentComponent::CONDITION_ARCHIVED
-     * and ::CONDITION_TRASHED, repeated here rather than imported so that com_workflow does
-     * not depend on com_content being installed.
-     *
-     * @var    integer
-     * @since  __DEPLOY_VERSION__
-     */
-    private const CONTENT_STATE_ARCHIVED = 2;
-
-    /**
-     * @var    integer
-     * @since  __DEPLOY_VERSION__
-     */
-    private const CONTENT_STATE_TRASHED = -2;
-
-    /**
      * @var    DatabaseInterface
      * @since  __DEPLOY_VERSION__
      */
@@ -210,7 +193,7 @@ final class UpcomingTransitionsCalculator
             ->where($db->quoteName('wt.workflow_id') . ' = :workflowId')
             ->bind(':workflowId', $workflowId, ParameterType::INTEGER);
 
-        return $db->setQuery($query)->loadObjectList() ?: [];
+        return $this->fetchRows($query);
     }
 
     /**
@@ -227,15 +210,10 @@ final class UpcomingTransitionsCalculator
         $db    = $this->database;
         $query = $this->baseRowsQuery()
             ->select($db->quoteName('w.title', 'workflow_title'))
-            ->join(
-                'LEFT',
-                $db->quoteName('#__workflows', 'w'),
-                $db->quoteName('w.id') . ' = ' . $db->quoteName('wt.workflow_id')
-            )
             ->where($db->quoteName('wis.extension') . ' = :extension')
             ->bind(':extension', $extension);
 
-        return $db->setQuery($query)->loadObjectList() ?: [];
+        return $this->fetchRows($query);
     }
 
     /**
@@ -257,7 +235,7 @@ final class UpcomingTransitionsCalculator
             ->bind(':itemId', $itemId, ParameterType::INTEGER)
             ->bind(':extension', $extension);
 
-        return $db->setQuery($query)->loadObjectList() ?: [];
+        return $this->fetchRows($query);
     }
 
     /**
@@ -290,7 +268,6 @@ final class UpcomingTransitionsCalculator
                     $db->quoteName('war.item_filter'),
                     $db->quoteName('war.fire_condition'),
                     $db->quoteName('war.ordering'),
-                    $db->quoteName('c.title', 'item_title'),
                 ]
             )
             ->from($db->quoteName('#__workflow_item_state', 'wis'))
@@ -315,20 +292,16 @@ final class UpcomingTransitionsCalculator
                 $db->quoteName('sto.id') . ' = ' . $db->quoteName('wt.to_stage_id')
             )
             ->join(
-                'LEFT',
-                $db->quoteName('#__content', 'c'),
-                $db->quoteName('c.id') . ' = ' . $db->quoteName('wis.item_id')
-                    . ' AND ' . $db->quoteName('wis.extension') . ' = ' . $db->quote('com_content.article')
+                'INNER',
+                $db->quoteName('#__workflows', 'w'),
+                $db->quoteName('w.id') . ' = ' . $db->quoteName('wt.workflow_id')
             )
+
+            // Every level has to be on, and the scheduler applies the same three, so the
+            // preview never advertises a transition the engine would refuse to fire.
+            ->where($db->quoteName('w.published') . ' = 1')
+            ->where($db->quoteName('wt.published') . ' = 1')
             ->where($db->quoteName('war.published') . ' = 1')
-            // Trashed and archived items are out of circulation, so they have no upcoming
-            // transition to preview. The state column is null for extensions other than
-            // com_content, which the left join above leaves unmatched; those are kept.
-            ->where(
-                '(' . $db->quoteName('c.state') . ' IS NULL OR '
-                . $db->quoteName('c.state') . ' NOT IN ('
-                . self::CONTENT_STATE_TRASHED . ', ' . self::CONTENT_STATE_ARCHIVED . '))'
-            )
             ->order($db->quoteName('war.ordering') . ' ASC');
     }
 
@@ -560,6 +533,73 @@ final class UpcomingTransitionsCalculator
             ->where($db->quoteName('wis.extension') . ' = :extension')
             ->bind(':extension', $extension);
 
-        return $db->setQuery($scheduledRowsQuery)->loadObjectList() ?: [];
+        return $this->fetchRows($scheduledRowsQuery);
+    }
+
+    /**
+     * Runs a rows query and finishes the two jobs the query cannot do itself.
+     *
+     * Both need the extension's own item table, and one query cannot join a different table
+     * per row, so they happen here instead. Each costs one query per extension in the result
+     * rather than one per item.
+     *
+     * Trashed and archived items are dropped: an editor has taken them out of use, and the
+     * scheduler ignores them too, so previewing a transition for them would promise something
+     * that will never happen. Titles are filled in so the views can name the item rather than
+     * falling back to its id, which is what happened for every extension except com_content
+     * while the title came from a hardcoded join.
+     *
+     * @param QueryInterface $query The prepared rows query.
+     *
+     * @return object[]
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function fetchRows(QueryInterface $query): array
+    {
+        $rows = $this->database->setQuery($query)->loadObjectList() ?: [];
+
+        if ($rows === []) {
+            return [];
+        }
+
+        $itemIdsByExtension = [];
+
+        foreach ($rows as $row) {
+            $itemIdsByExtension[$row->extension][] = (int) $row->item_id;
+        }
+
+        $itemStorage = new ItemStorage($this->database);
+        $excluded    = [];
+        $titles      = [];
+
+        foreach ($itemIdsByExtension as $extension => $itemIds) {
+            foreach ($itemStorage->trashedOrArchivedIds($itemIds, $extension) as $itemId) {
+                // Keyed by extension and id together, because an item id is only unique within
+                // its own extension: article 5 and contact 5 are different items.
+                $excluded[$extension . '.' . $itemId] = true;
+            }
+
+            foreach ($itemStorage->titlesFor($itemIds, $extension) as $itemId => $title) {
+                $titles[$extension . '.' . $itemId] = $title;
+            }
+        }
+
+        $kept = [];
+
+        foreach ($rows as $row) {
+            $key = $row->extension . '.' . $row->item_id;
+
+            if (isset($excluded[$key])) {
+                continue;
+            }
+
+            // The views expect this property whether or not a name was found; null means
+            // "show the id instead" rather than "no row".
+            $row->item_title = $titles[$key] ?? null;
+            $kept[]          = $row;
+        }
+
+        return $kept;
     }
 }

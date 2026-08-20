@@ -23,6 +23,7 @@ use Joomla\Component\Workflow\Administrator\Automation\ConditionEvaluationExcept
 use Joomla\Component\Workflow\Administrator\Automation\ConditionEvaluator;
 use Joomla\Component\Workflow\Administrator\Automation\DeadlineCalculator;
 use Joomla\Component\Workflow\Administrator\Automation\ItemFieldResolver;
+use Joomla\Component\Workflow\Administrator\Automation\ItemStorage;
 use Joomla\Database\DatabaseAwareTrait;
 use Joomla\Database\ParameterType;
 use Joomla\Event\SubscriberInterface;
@@ -81,7 +82,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * @since __DEPLOY_VERSION__
      */
     private const NEVER_CHECKED = '1000-01-01 00:00:00';
-
 
     /**
      * @var boolean
@@ -221,8 +221,19 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 $db->quoteName('#__workflow_automation_rules', 'war'),
                 $db->quoteName('war.transition_id') . ' = ' . $db->quoteName('wt.id')
             )
+            ->join(
+                'INNER',
+                $db->quoteName('#__workflows', 'w'),
+                $db->quoteName('w.id') . ' = ' . $db->quoteName('wt.workflow_id')
+            )
+
             ->where($db->quoteName('wis.requires_intervention') . ' = 0')
+            // Every level has to be on: switching off a workflow, a transition or a single
+            // rule should each stop the automation below it.
+            ->where($db->quoteName('w.published') . ' = 1')
+            ->where($db->quoteName('wt.published') . ' = 1')
             ->where($db->quoteName('war.published') . ' = 1')
+
             // A row nobody has looked at yet sorts as though it were checked long ago, so a new
             // item is picked up on the next run rather than waiting a full rotation. Written as
             // COALESCE rather than NULLS FIRST because MySQL and PostgreSQL disagree on where
@@ -236,10 +247,61 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->order($db->quoteName('war.ordering') . ' ASC')
             ->setLimit(self::MAX_CANDIDATES_PER_RUN);
 
-        return array_map(
+        $candidates = array_map(
             [DueAutomation::class, 'fromRow'],
             $db->setQuery($overduePairsQuery)->loadObjectList() ?: []
         );
+
+        return $this->withoutTrashedOrArchived($candidates);
+    }
+
+    /**
+     * Drops candidates whose item an editor has trashed or archived.
+     *
+     * This is done after the query rather than inside it because each extension keeps its
+     * items on its own table, and one query cannot join a different table per row.
+     * Filtering here instead costs one query per extension in the run, not one per item,
+     * and it works for any extension rather than only com_content.
+     *
+     * @param DueAutomation[] $candidates Every candidate row the query returned.
+     *
+     * @returned DueAutomation[]
+     *
+     * @since __DEPLOY__VERSION__
+     */
+    private function withoutTrashedOrArchived(array $candidates): array
+    {
+        if ($candidates === []) {
+            return [];
+        }
+
+        $itemIdsByExtension = [];
+
+        foreach ($candidates as $candidate) {
+            $itemIdsByExtension[$candidate->extension][] = (int) $candidate->item_id;
+        }
+
+        $itemStorage = new ItemStorage($this->getDatabase());
+        $excluded = [];
+
+        foreach ($itemIdsByExtension as $extension => $itemIds) {
+            foreach ($itemStorage->trashedOrArchivedIds($itemIds, $extension) as $itemId)
+                {
+                    // Keyed by extens and id together because an item id is only unique
+                    // withing its own extension.
+                    $excluded[$extension . '.' . $itemId] = true;
+                }
+        }
+
+        if ($excluded === []) {
+            return $candidates;
+        }
+
+        return array_values(array_filter(
+            $candidates,
+            static fn(DueAutomation $candidate): bool
+            => !isset($excluded[$candidate->extension . '.' . $candidate->item_id])
+        ));
     }
 
     /**
