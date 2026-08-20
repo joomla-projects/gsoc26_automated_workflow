@@ -142,7 +142,7 @@ final class ItemStorage
 
         $titles = [];
 
-        foreach($db->setQuery($query)->loadAssocList() ?: [] as $row) {
+        foreach ($db->setQuery($query)->loadAssocList() ?: [] as $row) {
             $titles[(int) $row[$storage['key']]] = (string) $row[$titleColumn];
         }
 
