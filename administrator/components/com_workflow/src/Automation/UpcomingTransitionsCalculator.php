@@ -10,7 +10,6 @@
 
 namespace Joomla\Component\Workflow\Administrator\Automation;
 
-use Joomla\CMS\Log\Log;
 use Joomla\Database\DatabaseInterface;
 use Joomla\Database\ParameterType;
 use Joomla\Database\QueryInterface;
@@ -129,28 +128,25 @@ final class UpcomingTransitionsCalculator
         // from its stage; we only show the one that fires next.
         $bestByItem = [];
 
+        // A rule whose filter cannot be read tells us nothing about whether it applies to this
+        // item, so it cannot compete for "fires next". The item is remembered separately
+        // instead of being dropped: dropping it is what used to make a broken rule vanish from
+        // the view completely, which is the one case an administrator most needs to see. The
+        // first message wins, matching the scheduler, which also reports one fault per item.
+        $liveFailureByItem = [];
+        $fallbackRowByItem = [];
+
         foreach ($rows as $row) {
+            $itemKey      = $row->extension . '.' . $row->item_id;
             $resolveField = $this->itemFieldResolver->forItem((int) $row->item_id, $row->extension);
 
-            // The filter decides whether this rule applies to this item at all. A rule that
-            // cannot be evaluated is logged and skipped, so one broken rule never takes down
-            // the whole view.
             try {
                 if (!$this->conditionEvaluator->evaluate($row->item_filter, $resolveField)) {
                     continue;
                 }
             } catch (ConditionEvaluationException $invalidCondition) {
-                Log::add(
-                    \sprintf(
-                        'Skipping automation on transition %d for item %s.%d: %s',
-                        (int) $row->transition_id,
-                        $row->extension,
-                        (int) $row->item_id,
-                        $invalidCondition->getMessage()
-                    ),
-                    Log::WARNING,
-                    'workflow'
-                );
+                $liveFailureByItem[$itemKey] ??= $invalidCondition->getMessage();
+                $fallbackRowByItem[$itemKey] ??= $row;
 
                 continue;
             }
@@ -158,18 +154,28 @@ final class UpcomingTransitionsCalculator
             // Rules compete on when they become due, before any condition is considered, so
             // the item keeps the rule that comes up first.
             $deadline = DeadlineCalculator::forRule($row->entered_at, $row);
-            $itemKey  = $row->extension . '.' . $row->item_id;
 
             if (!isset($bestByItem[$itemKey]) || $this->isSooner($deadline, $bestByItem[$itemKey]['deadline'])) {
                 $bestByItem[$itemKey] = ['row' => $row, 'deadline' => $deadline];
             }
         }
 
+        // An item whose every rule was unreadable has no winner to show, so the first rule that
+        // failed stands in for it. Without this the item is still missing from the view.
+        foreach ($fallbackRowByItem as $itemKey => $row) {
+            $bestByItem[$itemKey] ??= ['row' => $row, 'deadline' => null];
+        }
+
         $now      = new \DateTime('now', new \DateTimeZone('UTC'));
         $upcoming = [];
 
-        foreach ($bestByItem as $winner) {
-            $upcoming[] = $this->buildUpcomingTransition($winner['row'], $winner['deadline'], $now);
+        foreach ($bestByItem as $itemKey => $winner) {
+            $upcoming[] = $this->buildUpcomingTransition(
+                $winner['row'],
+                $winner['deadline'],
+                $now,
+                $liveFailureByItem[$itemKey] ?? ''
+            );
         }
 
         usort($upcoming, [$this, 'compareByFiresAt']);
@@ -256,6 +262,8 @@ final class UpcomingTransitionsCalculator
                     $db->quoteName('wis.extension'),
                     $db->quoteName('wis.entered_at'),
                     $db->quoteName('wis.requires_intervention'),
+                    $db->quoteName('wis.last_failure_at'),
+                    $db->quoteName('wis.last_failure_reason'),
                     $db->quoteName('wt.id', 'transition_id'),
                     $db->quoteName('wt.from_stage_id'),
                     $db->quoteName('wt.to_stage_id'),
@@ -316,12 +324,37 @@ final class UpcomingTransitionsCalculator
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function buildUpcomingTransition(object $row, ?\DateTime $deadline, \DateTime $now): UpcomingTransition
-    {
+    private function buildUpcomingTransition(
+        object $row,
+        ?\DateTime $deadline,
+        \DateTime $now,
+        string $liveFailureReason
+    ): UpcomingTransition {
         $requiresIntervention = (int) $row->requires_intervention === 1;
         $hasCondition         = $row->fire_condition !== null && trim((string) $row->fire_condition) !== '';
 
-        [$firesAt, $status] = $this->resolveFireTime($row, $deadline, $now, $hasCondition, $requiresIntervention);
+        [$firesAt, $status, $discoveredReason] = $this->resolveFireTime(
+            $row,
+            $deadline,
+            $now,
+            $hasCondition,
+            $requiresIntervention,
+            $liveFailureReason
+        );
+
+        $storedReason = (string) ($row->last_failure_reason ?? '');
+        $storedAt     = $row->last_failure_at !== null
+            ? new \DateTime((string) $row->last_failure_at, new \DateTimeZone('UTC'))
+            : null;
+
+        // What this render just discovered describes the rule as it stands right now. The
+        // stored reason describes what the scheduler hit on its last real run, which is not
+        // the same question: the rule may have been fixed since, and the scheduler evaluates
+        // the fire condition at fire time, a moment this view never reaches. So a discovered
+        // fault wins, and when only the stored one exists it is shown with its timestamp while
+        // the status is left alone. The view has no business claiming a fault it cannot see.
+        $failureReason = $discoveredReason !== '' ? $discoveredReason : $storedReason;
+        $failedAt = $discoveredReason !== '' ? null : $storedAt;
 
         return new UpcomingTransition(
             itemId: (int) $row->item_id,
@@ -332,6 +365,8 @@ final class UpcomingTransitionsCalculator
             toStage: (string) ($row->to_stage_title ?? ''),
             firesAt: $firesAt,
             status: $status,
+            failureReason: $failureReason,
+            failedAt: $failedAt,
             ruleType: (string) $row->rule_type,
             delayValue: $row->delay_value !== null ? (int) $row->delay_value : null,
             delayUnit: $row->delay_unit,
@@ -354,6 +389,11 @@ final class UpcomingTransitionsCalculator
      * @param   \DateTime       $now                   Current time (UTC).
      * @param   boolean         $hasCondition          Whether a fire condition exists.
      * @param   boolean         $requiresIntervention  Whether the item is flagged stuck.
+     * @param   string          $liveFailureReason     A filter fault this render already found,
+     * or '' if the filter read cleanly.
+     *
+     * @return  array{0: \DateTime|null, 1: string, 2: string}  Fire time, status, and the fault
+     * this render found if any.
      *
      * @return  array{0: \DateTime|null, 1: string}  The fire time and the display status.
      *
@@ -364,22 +404,29 @@ final class UpcomingTransitionsCalculator
         ?\DateTime $deadline,
         \DateTime $now,
         bool $hasCondition,
-        bool $requiresIntervention
+        bool $requiresIntervention,
+        string $liveFailureReason
     ): array {
+        // Blocked outranks everything: the item is out of the scheduler until a person clears
+        // it, so nothing about its timing is worth showing.
         if ($requiresIntervention) {
-            return [$deadline, 'needs_attention'];
+            return [$deadline, 'needs_attention', ''];
+        }
+
+        // The filter could not be read, so whether this rule even applies is unknown, which
+        // makes any fire time a guess.
+        if ($liveFailureReason !== '') {
+            return [null, 'rule_error', $liveFailureReason];
         }
 
         if ($deadline === null) {
-            return [null, 'not_scheduled'];
+            return [null, 'not_scheduled', ''];
         }
 
         if (!$hasCondition) {
-            return [$deadline, 'scheduled'];
+            return [$deadline, 'scheduled', ''];
         }
 
-        // A rule whose condition cannot be evaluated has no knowable fire time, and the broken
-        // rule is what needs fixing, so it is logged and flagged rather than guessed at.
         try {
             $firesAt = $this->conditionWindowCalculator->firstMatchAtOrAfter(
                 $row->fire_condition,
@@ -388,28 +435,20 @@ final class UpcomingTransitionsCalculator
                 (string) $row->extension
             );
         } catch (ConditionEvaluationException $invalidCondition) {
-            Log::add(
-                \sprintf(
-                    'Invalid fire condition on transition %d for item %s.%d: %s',
-                    (int) $row->transition_id,
-                    $row->extension,
-                    (int) $row->item_id,
-                    $invalidCondition->getMessage()
-                ),
-                Log::WARNING,
-                'workflow'
-            );
-
-            return [null, 'needs_attention'];
+            // This was reported as needs_attention, which was misleading. That status means
+            // the item is stopped and waiting on a person; this one keeps being retried every
+            // run and clears itself the moment the rule is fixed. Telling an administrator to
+            // go and unstick something that is not stuck wastes their time.
+            return [null, 'rule_error', $invalidCondition->getMessage()];
         }
 
         // The condition never opens again within the search horizon, so there is no fire time
         // to promise: for example a rule gated on a date that has already passed.
         if ($firesAt === null) {
-            return [null, 'not_scheduled'];
+            return [null, 'not_scheduled', ''];
         }
 
-        return [$firesAt, 'scheduled'];
+        return [$firesAt, 'scheduled', ''];
     }
 
     /**

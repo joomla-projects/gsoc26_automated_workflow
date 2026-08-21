@@ -33,7 +33,7 @@ if (empty($items)) : ?>
         <span class="icon-info-circle" aria-hidden="true"></span>
         <?php echo Text::_('COM_WORKFLOW_UPCOMING_EMPTY'); ?>
     </div>
-    <?php
+<?php
     return;
 endif;
 
@@ -86,13 +86,35 @@ $unitKeys = [
                 <td>
                     <?php if ($transition->status === 'needs_attention') : ?>
                         <span class="badge bg-danger"><?php echo Text::_('COM_WORKFLOW_UPCOMING_STATUS_ATTENTION'); ?></span>
+                    <?php elseif ($transition->status === 'rule_error') : ?>
+                        <span class="badge bg-warning text-dark"><?php echo Text::_('COM_WORKFLOW_UPCOMING_STATUS_RULE_ERROR'); ?></span>
                     <?php elseif ($transition->status === 'not_scheduled') : ?>
+                        <span class="badge bg-secondary"><?php echo Text::_('COM_WORKFLOW_UPCOMING_STATUS_NOT_SCHEDULED'); ?></span>
+                    <?php elseif ($transition->firesAt === null) : ?>
                         <span class="badge bg-secondary"><?php echo Text::_('COM_WORKFLOW_UPCOMING_STATUS_NOT_SCHEDULED'); ?></span>
                     <?php else : ?>
                         <div><?php echo RelativeTime::until($transition->firesAt); ?></div>
                         <div class="small text-muted"><?php echo HTMLHelper::_('date', $transition->firesAt->format('Y-m-d H:i:s'), Text::_('DATE_FORMAT_LC2')); ?></div>
                         <?php if ($transition->hasCondition) : ?>
                             <span class="badge bg-info"><?php echo Text::_('COM_WORKFLOW_UPCOMING_SUBJECT_CONDITION'); ?></span>
+                        <?php endif; ?>
+                    <?php endif; ?>
+
+                    <?php
+                    // Shown whatever the status, not only under Rule error. A stored fault can sit
+                    // beside a perfectly good fire time when it belongs to another rule on the same
+                    // stage, one that lost the race to fire first but is still broken.
+                    if ($transition->failureReason !== '') : ?>
+                        <div class="small text-muted mt-1">
+                            <?php echo htmlspecialchars($transition->failureReason, ENT_QUOTES, 'UTF-8'); ?>
+                        </div>
+                        <?php if ($transition->failedAt !== null) : ?>
+                            <div class="small text-muted">
+                                <?php echo Text::sprintf(
+                                    'COM_WORKFLOW_UPCOMING_LAST_FAILED',
+                                    HTMLHelper::_('date', $transition->failedAt->format('Y-m-d H:i:s'), Text::_('DATE_FORMAT_LC2'))
+                                ); ?>
+                            </div>
                         <?php endif; ?>
                     <?php endif; ?>
                 </td>
