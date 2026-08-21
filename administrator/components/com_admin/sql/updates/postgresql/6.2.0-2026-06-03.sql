@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS "#__workflow_item_state" (
     "triggered_by" varchar(20) DEFAULT 'manual' NOT NULL,
     "requires_intervention" smallint DEFAULT 0 NOT NULL,
     "last_checked_at" timestamp without time zone,
+	"last_failure_at" timestamp without time zone,
+	"last_failure_reason" varchar(500),
     PRIMARY KEY ("id"),
     CONSTRAINT "#__workflow_item_state_idx_item_extension" UNIQUE ("item_id", "extension")
 );
@@ -63,6 +65,12 @@ COMMENT ON COLUMN "#__workflow_item_state"."entered_at" IS 'When the item arrive
 COMMENT ON COLUMN "#__workflow_item_state"."triggered_by" IS 'Determine if a transition was triggered manually or by the automation';
 
 COMMENT ON COLUMN "#__workflow_item_state"."requires_intervention" IS 'Set when an automated transition failed; excluded from the scheduler until an admin clears it';
+
+COMMENT ON COLUMN "#__workflow_item_state"."last_checked_at" IS 'When the scheduler last considered this item; null means never';
+
+COMMENT ON COLUMN "#__workflow_item_state"."last_failure_at" IS 'When this item last could not be evaluated; null means it evaluated cleanly';
+
+COMMENT ON COLUMN "#__workflow_item_state"."last_failure_reason" IS 'Why it could not be evaluated, so the same failure is only reported once';
 
 CREATE TABLE IF NOT EXISTS "#__workflow_automation_log" (
     "id" serial NOT NULL,

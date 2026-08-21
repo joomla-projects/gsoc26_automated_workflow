@@ -1307,6 +1307,8 @@ CREATE TABLE IF NOT EXISTS `#__workflow_item_state` (
 	`triggered_by` ENUM('manual', 'automation') NOT NULL DEFAULT 'manual' COMMENT 'Determine if a transition was triggered manually or by the automation',
 	`requires_intervention` tinyint NOT NULL DEFAULT 0 COMMENT 'Set when an automated transition failed; excluded from the scheduler until an admin clears it',
 	`last_checked_at` datetime DEFAULT NULL COMMENT 'When the scheduler last considered this item; null means never',
+	`last_failure_at` datetime DEFAULT NULL COMMENT 'When this item last could not be evaluated; null means it evaluated cleanly',
+	`last_failure_reason` varchar(500) DEFAULT NULL COMMENT 'Why it could not be evaluated, so the same failure is only reported once',
 	PRIMARY KEY (`id`),
 	UNIQUE KEY `idx_item_extension` (`item_id`, `extension`),
 	KEY `idx_stage_entered` (`stage_id`, `entered_at`),

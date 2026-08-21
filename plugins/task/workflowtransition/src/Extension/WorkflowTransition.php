@@ -75,6 +75,20 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     private const MAX_CANDIDATES_PER_RUN = 500;
 
     /**
+     * How much of a failure reason is kept. Matches the width of
+     * #__workflow_item_state.last_failure_reason.
+     *
+     * The message is cut to this length at the point it is built, not at the point it is
+     * written, so that what a later run compares against is exactly what was stored. Cutting
+     * it on the way into the database instead would make every run compare a full message
+     * against a truncated one, find them different, and send another email.
+     *
+     * @var integer
+     * @since __DEPLOY_VERSION__
+     */
+    private const MAX_FAILURE_REASON_LENGTH = 500;
+
+    /**
      * Stands in for "never checked" when sorting. The earliest datetime MySQL accepts, so a
      * row that has never been considered always sorts ahead of one that has.
      *
@@ -153,13 +167,61 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $app                = Factory::getApplication();
         $failures           = [];
 
+        // Item state rows that could not be evaluated this run, keyed by row id, with the
+        // reason as the value. Collected here and written in bulk after the loop, because a
+        // broken rule usually breaks for every item it covers and one query per item would
+        // turn a single misconfiguration into hundreds of writes.
+        $failureReasonsByItemState = [];
+
+        // Item state rows carrying a stored reason that no longer applies, because they read
+        // cleanly this time. Cleared for the same reason, in one query.
+        $recoveredItemStates = [];
+
         foreach ($candidatesByItem as $itemCandidates) {
-            $winningRule = $this->selectRuleForItem($itemCandidates, $nowDateTime, $conditionEvaluator, $itemFieldResolver, $failures);
+            // Set by selectRuleForItem() only when a rule's stored expression cannot be read.
+            $evaluationFailure = null;
+
+            // Safe without a guard: $candidatesByItem is built by appending, so a group only
+            // exists because at least one candidate was pushed into it, and the keys are always
+            // zero-based. Every candidate for one item shares its item state row, so any of
+            // them can speak for the item.
+            $firstCandidate = $itemCandidates[0];
+
+            $winningRule = $this->selectRuleForItem(
+                $itemCandidates,
+                $nowDateTime,
+                $conditionEvaluator,
+                $itemFieldResolver,
+                $evaluationFailure
+            );
+
+            if ($evaluationFailure !== null) {
+                $failureReasonsByItemState[$firstCandidate->item_state_id] = $evaluationFailure;
+
+                // Only a reason the administrator has not already been told about earns an
+                // email. A broken rule fails again on every single run, and mailing someone
+                // every run about a fault they already know about is how notifications end up
+                // in a folder nobody reads. Comparing against the stored reason still catches
+                // a fault that returns after being fixed, because the column was cleared in
+                // between, and still catches the same rule failing for a new reason.
+                if ($evaluationFailure !== $firstCandidate->last_failure_reason) {
+                    $editLink   = $this->itemEditLink($firstCandidate);
+                    $failures[] = 'Item ' . $firstCandidate->item_id . ': ' . $evaluationFailure
+                        . ($editLink !== '' ? ' - ' . $editLink : '');
+                }
+            } elseif ($firstCandidate->last_failure_reason !== null) {
+                // It read cleanly this time, so the stored fault is stale. Left in place it
+                // would keep warning about a rule that has since been fixed.
+                $recoveredItemStates[] = $firstCandidate->item_state_id;
+            }
 
             if ($winningRule !== null) {
                 $this->fireRule($winningRule, $app, $failures);
             }
         }
+
+        $this->recordEvaluationFailures($failureReasonsByItemState, $now);
+        $this->clearEvaluationFailures($recoveredItemStates);
 
         if (!empty($failures)) {
             $summary = \count($failures) . ' automated transition(s) failed:' . "\n" . implode("\n", $failures);
@@ -209,6 +271,9 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 $db->quoteName('wis.id', 'item_state_id'),
                 $db->quoteName('wis.entered_at'),
                 $db->quoteName('war.run_as_user_id'),
+                // Read back so the run can tell a fault it has already reported
+                // from a new one.
+                $db->quoteName('wis.last_failure_reason'),
             ])
             ->from($db->quoteName('#__workflow_item_state', 'wis'))
             ->join(
@@ -285,12 +350,11 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $excluded = [];
 
         foreach ($itemIdsByExtension as $extension => $itemIds) {
-            foreach ($itemStorage->trashedOrArchivedIds($itemIds, $extension) as $itemId)
-                {
+            foreach ($itemStorage->trashedOrArchivedIds($itemIds, $extension) as $itemId) {
                     // Keyed by extens and id together because an item id is only unique
                     // withing its own extension.
                     $excluded[$extension . '.' . $itemId] = true;
-                }
+            }
         }
 
         if ($excluded === []) {
@@ -342,7 +406,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * @param object $item The overdue (item, rule) pair.
      *
-     * @return string Absolute URL, or empty string if the extension can't be resolved.
+     * @return string Absolute URL, or empty string if no link can be built.
      *
      * @since __DEPLOY_VERSION__
      */
@@ -356,12 +420,27 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             return '';
         }
 
-        $base = (string) Factory::getApplication()->get('live_site');
+        $app  = Factory::getApplication();
+        $base = (string) $app->get('live_site');
 
-        if ($base === '') {
+        // Uri::root() works the address out from the current HTTP request. A run started from
+        // cron has no request, so asking it there raises a warning into the cron log and then
+        // throws. Catching the exception is not enough on its own, because the warning is
+        // emitted first and would still fill the log on every failing item.
+        if ($base === '' && !$app->isClient('cli')) {
             $base = Uri::root();
         }
-        return rtrim($base, '/') . '/administrator/index.php?option=' . $option . '&task=' . $type . '.edit&id=' . $item->item_id;
+
+        if ($base === '') {
+            // Site URL is empty by default in Joomla, so a cron-driven site lands here as a
+            // matter of course rather than as an edge case. The link is a convenience in a
+            // notification: the report goes out without one, and an administrator who wants
+            // links in their notifications fills in Site URL in Global Configuration.
+            return '';
+        }
+
+        return rtrim($base, '/') . '/administrator/index.php?option=' . $option
+            . '&task=' . $type . '.edit&id=' . (int) $item->item_id;
     }
 
     /**
@@ -386,7 +465,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             array_map(static fn (DueAutomation $candidate): int => $candidate->item_state_id, $candidates)
         ));
 
-        $db          = $this->getDatabase();
+        $db = $this->getDatabase();
         $updateQuery = $db->getQuery(true)
             ->update($db->quoteName('#__workflow_item_state'))
             ->set($db->quoteName('last_checked_at') . ' = :now')
@@ -421,6 +500,87 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     }
 
     /**
+     * Stores why these item states could not be evaluated, so the reason survives the run.
+     *
+     * Grouped by reason rather than written row by row. One misconfigured rule fails with the
+     * same message for every item it covers, so the usual case is a single query no matter how
+     * many items are affected, and the worst case is one query per distinct fault rather than
+     * one per item.
+     *
+     * This is not the same thing as requires_intervention. That flag takes an item out of the
+     * scheduler until a human clears it, and is set when a transition actually failed to run.
+     * This is a note about a rule that could not be read: the item keeps being retried, and the
+     * note clears itself as soon as the rule is fixed.
+     *
+     * @param string[] $reasonsByItemStateId  Reason text, keyed by #__workflow_item_state id.
+     * @param string $now The run's timestamp, in SQL format.
+     *
+     * @return  void
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function recordEvaluationFailures(array $reasonsByItemStateId, string $now): void
+    {
+        if ($reasonsByItemStateId === []) {
+            return;
+        }
+
+        $itemStateIdsByReason = [];
+
+        foreach ($reasonsByItemStateId as $itemStateId => $reason) {
+            $itemStateIdsByReason[$reason][] = (int) $itemStateId;
+        }
+
+        $db = $this->getDatabase();
+
+        foreach ($itemStateIdsByReason as $reason => $itemStateIds) {
+            // Cast because PHP silently turns an array key that looks like a whole number into
+            // an integer, and bind() expects the string it was given.
+            $reasonText = (string) $reason;
+
+            $updateQuery = $db->getQuery(true)
+                ->update($db->quoteName('#__workflow_item_state'))
+                ->set($db->quoteName('last_failure_at') . ' = :now')
+                ->set($db->quoteName('last_failure_reason') . ' = :reason')
+                ->whereIn($db->quoteName('id'), $itemStateIds)
+                ->bind(':now', $now)
+                ->bind(':reason', $reasonText);
+
+            $db->setQuery($updateQuery)->execute();
+        }
+    }
+
+    /**
+     * Removes the stored failure note from item states that evaluated cleanly this run.
+     *
+     * Self-clearing is what separates this note from requires_intervention: fixing the rule is
+     * enough, nobody has to go and dismiss anything. It is also what makes the notification
+     * rule work, because a fault that returns after being cleared compares against null and so
+     * counts as new.
+     *
+     * @param   integer[]  $itemStateIds  The #__workflow_item_state row ids to clear.
+     *
+     * @return  void
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function clearEvaluationFailures(array $itemStateIds): void
+    {
+        if ($itemStateIds === []) {
+            return;
+        }
+
+        $db          = $this->getDatabase();
+        $updateQuery = $db->getQuery(true)
+            ->update($db->quoteName('#__workflow_item_state'))
+            ->set($db->quoteName('last_failure_at') . ' = NULL')
+            ->set($db->quoteName('last_failure_reason') . ' = NULL')
+            ->whereIn($db->quoteName('id'), $itemStateIds);
+
+        $db->setQuery($updateQuery)->execute();
+    }
+
+    /**
      * Chooses which single rule, if any, should fire for one item this run.
      *
      * Considers every candidate rule for the item: it must be past its own deadline, its
@@ -433,6 +593,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * @param   \DateTime           $nowDateTime         Current time (UTC).
      * @param   ConditionEvaluator  $conditionEvaluator  The expression evaluator.
      * @param   ItemFieldResolver   $itemFieldResolver   The field resolver factory.
+     * @param string|null $evaluationFailure Set by reference to why this item could
+     * not be evaluated or left null if it could
      *
      * @return  object|null  The winning candidate, or null if none should fire.
      *
@@ -443,7 +605,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         \DateTime $nowDateTime,
         ConditionEvaluator $conditionEvaluator,
         ItemFieldResolver $itemFieldResolver,
-        array &$failures
+        ?string &$evaluationFailure
     ): ?object {
         $firstCandidate = $itemCandidates[0];
         $fieldResolver  = $itemFieldResolver->forItem((int) $firstCandidate->item_id, $firstCandidate->extension);
@@ -475,12 +637,19 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                     continue;
                 }
             } catch (ConditionEvaluationException $invalidCondition) {
-                $failures[] = 'Item ' . $candidate->item_id . ' (rule ' . $candidate->rule_id . '): invalid condition: '
-                    . $invalidCondition->getMessage();
+                // Only the first unreadable rule on this item is kept. A second one would
+                // overwrite the first, and an administrator fixes them one at a time anyway:
+                // repairing this rule lets the next run surface whatever is behind it.
+                // The item id is not part of the text because the text is stored on the item's
+                // own row; the caller puts it back when building the notification.
+                $evaluationFailure ??= mb_substr(
+                    'Rule ' . $candidate->rule_id . ' could not be evaluated: ' . $invalidCondition->getMessage(),
+                    0,
+                    self::MAX_FAILURE_REASON_LENGTH
+                );
 
                 continue;
             }
-
             $eligibleRules[] = $candidate;
         }
 

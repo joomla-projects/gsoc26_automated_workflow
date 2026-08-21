@@ -40,6 +40,7 @@ final class DueAutomation
     public int $item_state_id;
     public string $entered_at;
     public int $run_as_user_id;
+    public ?string $last_failure_reason;
 
     /**
      * Builds an instance from a database row.
@@ -70,6 +71,7 @@ final class DueAutomation
         $candidate->item_state_id     = (int) $row->item_state_id;
         $candidate->entered_at        = (string) $row->entered_at;
         $candidate->run_as_user_id    = (int) $row->run_as_user_id;
+        $candidate->last_failure_reason = $row->last_failure_reason;
 
         return $candidate;
     }
