@@ -130,7 +130,29 @@ final class Automation extends CMSPlugin implements SubscriberInterface
             $updateStageLogQuery
                 ->set($db->quoteName('stage_id') . ' = :stageId')
                 ->set($db->quoteName('entered_at') . ' = :enteredAt')
-                ->set($db->quoteName('triggered_by') . ' = :triggeredBy');
+                ->set($db->quoteName('triggered_by') . ' = :triggeredBy')
+
+                // Everything below describes the stage the item has just left, so none of it
+                // survives the move.
+                //
+                // requires_intervention keeps an item out of the scheduler until a person
+                // clears it. Reaching this method means a transition has just succeeded, so
+                // whatever was stuck no longer is. Leaving the flag set silently excludes the
+                // item from a stage where nothing has ever gone wrong, and nothing would ever
+                // clear it, because the scheduler never looks at a flagged item again.
+                ->set($db->quoteName('requires_intervention') . ' = 0')
+
+                // The scheduler takes candidates least-recently-checked first, treating null as
+                // never. An item carrying a stamp from its old stage sorts as though it had just
+                // been looked at, so it waits a full rotation before anyone considers it here.
+                ->set($db->quoteName('last_checked_at') . ' = NULL')
+
+                // The recorded fault names a rule on the old stage. Beyond showing a warning
+                // about a rule this item can no longer reach, a stale reason would suppress the
+                // notification for a genuinely new fault, because the scheduler only reports a
+                // reason that differs from the one already stored.
+                ->set($db->quoteName('last_failure_at') . ' = NULL')
+                ->set($db->quoteName('last_failure_reason') . ' = NULL');
 
             $updateStageLogQuery->whereIn($db->quoteName('id'), $logIds);
             $db->setQuery($updateStageLogQuery)->execute();
