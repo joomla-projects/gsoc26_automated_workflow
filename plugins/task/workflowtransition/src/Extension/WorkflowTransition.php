@@ -32,6 +32,7 @@ use Joomla\Plugin\Task\WorkflowTransition\Dto\DueAutomation;
 // phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;
 // phpcs:enable PSR1.Files.SideEffects
+
 /**
  * Scheduler task plugin that fires automated workflow transitions.
  *
@@ -121,7 +122,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     }
 
     /**
-     * Main task routine — called by the scheduler when the task is due.
+     * Main task routine - called by the scheduler when the task is due.
      *
      * Groups the due candidates by item, then for each item fires a single rule: it must be
      * past its deadline, pass its filter, and meet its live condition, with the highest-priority
@@ -216,12 +217,15 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             }
 
             if ($winningRule !== null) {
-                $this->fireRule($winningRule, $app, $failures);
+                $this->fireRule($winningRule, $app, $failures, $failureReasonsByItemState);
             }
         }
 
-        $this->recordEvaluationFailures($failureReasonsByItemState, $now);
+        // Cleared first, then recorded. An item can read cleanly and still fail to fire, in
+        // which case fireRule() writes a reason for a row that is already on the clear list.
+        // The other order wipes the reason a moment after writing it.
         $this->clearEvaluationFailures($recoveredItemStates);
+        $this->recordEvaluationFailures($failureReasonsByItemState, $now);
 
         if (!empty($failures)) {
             $summary = \count($failures) . ' automated transition(s) failed:' . "\n" . implode("\n", $failures);
@@ -666,56 +670,146 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     }
 
     /**
-     * Executes the winning transition for an item, as its configured run-as user.
+     * Records one rule failure in all the places it has to appear.
      *
-     * @param DueAutomation $rule      The winning candidate row.
-     * @param   CMSApplicationInterface  $app       The application, for the identity swap.
-     * @param   string[]                 $failures  Collected failure messages (by reference).
+     * The same things happen every time a rule cannot fire, and keeping them together means a
+     * new failure path cannot accidentally do only some of them: the run's report gains a line
+     * so it reaches an administrator, the automation log gains a row so there is a history, and
+     * the item's own state row gains the reason so the screens can explain the delay.
+     *
+     * Whether the item is also taken out of the scheduler is the one real difference between
+     * failure kinds, so it is a parameter. A transition that failed to execute is blocked,
+     * because retrying it will fail the same way until somebody looks at it. A rule that names
+     * no usable user is not blocked, because that is a fault in the rule rather than in the
+     * item: correcting one field fixes every item at once, and the reason clears itself on the
+     * next clean run. Blocking would leave an administrator clearing a flag item by item after
+     * a one-line fix.
+     *
+     * @param   DueAutomation  $rule            The rule that could not fire.
+     * @param   string[]       $failures        Collected failure messages (by reference).
+     * @param   string[]       $failureReasons  Reasons keyed by item state row id (by reference).
+     * @param   string         $note            What went wrong, in plain words.
+     * @param   integer        $exitCode        A #__workflow_automation_log exit code.
+     * @param   boolean        $blockRetries    Whether to take the item out of the scheduler.
      *
      * @return  void
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function fireRule(DueAutomation $rule, CMSApplicationInterface $app, array &$failures): void
-    {
+    private function recordRuleFailure(
+        DueAutomation $rule,
+        array &$failures,
+        array &$failureReasons,
+        string $note,
+        int $exitCode = 1,
+        bool $blockRetries = false
+    ): void {
+        $reason = mb_substr(
+            'Rule ' . $rule->rule_id . ': ' . $note,
+            0,
+            self::MAX_FAILURE_REASON_LENGTH
+        );
+
+        $failureReasons[$rule->item_state_id] = $reason;
+
+        // Reported, and written to the automation log, only when the reason differs from the
+        // one already stored. A rule that stays broken fails again on every run, and a log row
+        // plus an email every minute would bury the history the log exists to preserve. A
+        // failure that blocks retries can only happen once, so this changes nothing for those.
+        if ($reason !== $rule->last_failure_reason) {
+            $editLink   = $this->itemEditLink($rule);
+            $failures[] = 'Item ' . $rule->item_id . ': ' . $reason
+                . ($editLink !== '' ? ' - ' . $editLink : '');
+
+            $this->logAutomationRun($rule, $exitCode, $note);
+        }
+
+        if ($blockRetries) {
+            $this->markRequiresIntervention($rule->item_state_id);
+        }
+    }
+
+    /**
+     * Executes the winning transition for an item, as its configured run-as user.
+     *
+     * @param   DueAutomation            $rule            The winning candidate row.
+     * @param   CMSApplicationInterface  $app             The application, for the identity swap.
+     * @param   string[]                 $failures        Collected failure messages (by reference).
+     * @param   string[]                 $failureReasons  Reasons keyed by item state row id (by reference).
+     *
+     * @return  void
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function fireRule(
+        DueAutomation $rule,
+        CMSApplicationInterface $app,
+        array &$failures,
+        array &$failureReasons
+    ): void {
         $transitionId = (int) $rule->transition_id;
         $runAsUserId  = $rule->run_as_user_id;
         $originalUser = $app->getIdentity();
 
-        try {
-            if ($runAsUserId > 0) {
-                $runAsUser = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($runAsUserId);
+        // A rule acts as the user it names, and only as that user. Both ways of not having one
+        // are refusals rather than fallbacks.
+        // run_as_user_id is 0 whenever nobody filled the field in. Saving a rule like that is
+        // allowed with only a warning, so this is reachable in ordinary use rather than only
+        // through tampering. A deleted user comes back from loadUserById() as an empty User
+        // with id 0 rather than as null, so the load has to be checked, not assumed.
+        //
+        // Carrying on either way executes the transition as whatever identity the scheduler is
+        // holding. From cron that is a guest and the transition merely fails confusingly. When
+        // the lazy scheduler fires from a page request it is the person who loaded that page,
+        // and the rule would act with their permissions instead of the ones an administrator
+        // chose for it. Neither is what the rule says it does.
+        if ($runAsUserId <= 0) {
+            $this->recordRuleFailure(
+                $rule,
+                $failures,
+                $failureReasons,
+                'This rule has no Run As user, so there is no identity to execute it with.'
+            );
 
-                if ($runAsUser->id > 0) {
-                    $app->loadIdentity($runAsUser);
-                }
-            }
+            return;
+        }
+
+        $runAsUser = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($runAsUserId);
+
+        if ((int) $runAsUser->id !== $runAsUserId) {
+            $this->recordRuleFailure(
+                $rule,
+                $failures,
+                $failureReasons,
+                'The Run As user (id ' . $runAsUserId . ') no longer exists.'
+            );
+
+            return;
+        }
+
+        try {
+            $app->loadIdentity($runAsUser);
 
             $workflow = new Workflow($rule->extension);
 
             // executeTransition() re-checks the item's current stage association, so a candidate
             // made stale by a manual transition earlier in this run returns false instead of
             // firing. Note that false is currently indistinguishable from a genuine failure, so
-            // such a race is reported as one; see the follow-up issue on classifying exit codes.
-
+            // such a race is reported as one
             if ($workflow->executeTransition([$rule->item_id], $transitionId, 'automation')) {
                 $this->logAutomationRun($rule, 0);
             } else {
-                $failureNote = 'Transition could not be executed; permission denied, invalid transition, or stopped by a plugin.';
-                $editLink    = $this->itemEditLink($rule);
-                $failures[]  = 'Item ' . $rule->item_id . ' (transition ' . $transitionId . '): '
-                    . $failureNote . ($editLink !== '' ? ' - ' . $editLink : '');
-
-                $this->logAutomationRun($rule, 1, $failureNote);
-                $this->markRequiresIntervention($rule->item_state_id);
+                $this->recordRuleFailure(
+                    $rule,
+                    $failures,
+                    $failureReasons,
+                    'Transition could not be executed; permission denied, invalid transition, or stopped by a plugin.',
+                    1,
+                    true
+                );
             }
         } catch (\Throwable $error) {
-            $editLink   = $this->itemEditLink($rule);
-            $failures[] = 'Item ' . $rule->item_id . ' (transition ' . $transitionId . '): '
-                . $error->getMessage() . ($editLink !== '' ? ' - ' . $editLink : '');
-
-            $this->logAutomationRun($rule, 3, $error->getMessage());
-            $this->markRequiresIntervention($rule->item_state_id);
+            $this->recordRuleFailure($rule, $failures, $failureReasons, $error->getMessage(), 3, true);
         } finally {
             // Always restore the scheduler's original identity.
             $app->loadIdentity($originalUser);
