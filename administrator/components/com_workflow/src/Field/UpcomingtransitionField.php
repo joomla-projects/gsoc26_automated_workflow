@@ -100,7 +100,8 @@ class UpcomingtransitionField extends FormField
         // Shown whatever the status, for the same reason as in the Upcoming table: a stored
         // fault can belong to a rule other than the one whose time is on display.
         if ($upcoming->failureReason !== '') {
-            $fires .= '<div class="small text-muted mt-1">'
+            $fires .= '<div class="small text-warning-emphasis mt-1">'
+                . '<span class="icon-warning" aria-hidden="true"></span> '
                 . htmlspecialchars($upcoming->failureReason, ENT_QUOTES, 'UTF-8')
                 . '</div>';
 

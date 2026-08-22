@@ -136,6 +136,10 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *   the item's current stage association before acting, so a stale candidate cannot fire a
      *   transition that no longer applies. See fireRule() for how that outcome is reported.
      *
+     * $event cannot be removed. standardRoutineHandler() reflects on the method and requires
+     * exactly one required parameter typed ExecuteTaskEvent with an int return; drop it and
+     *  the plugin logs "Incorrect routine method signature" and refuses to run
+     *
      * @param   ExecuteTaskEvent  $event  The scheduler event.
      *
      * @return  integer  A TaskStatus code (OK, or KNOCKOUT when a transition failed).
@@ -146,7 +150,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     {
         $now         = Factory::getDate()->toSql();
         $nowDateTime = new \DateTime($now, new \DateTimeZone('UTC'));
-        $candidates  = $this->fetchOverdueCandidates();
+        $candidates  = $this->fetchCandidates();
 
         if (empty($candidates)) {
             return TaskStatus::OK;
@@ -240,20 +244,20 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     }
 
     /**
-     * Fetches the automation rules that are due to be considered for their items this run.
+     * Fetches every (item, rule) pair this run could act on.
      *
      * Joins the item state, transition, and rule tables so each row carries both the item's
-     * schedule data and a rule that could fire it. Nothing is filtered by time here: whether a
-     * rule is due is worked out live from entered_at, because a stored deadline goes stale the
-     * moment a rule, an item, or a stage's automation changes. Rows are taken oldest first and
-     * capped, so a large backlog is worked through over successive runs rather than in one.
-     *
+     * schedule data and a rule that could fire it. Deliberately not named for overdue-ness:
+     * nothing here filters by time. Whether a rule is due is worked out live from entered_at,
+     * because a stored deadline goes stale the moment a rule, an item, or a stage's automation
+     * changes. Rows are taken least-recently-checked first and capped, so a large backlog is
+     * worked through over successive runs rather than in one.
      *
      * @return  DueAutomation[]
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function fetchOverdueCandidates(): array
+    private function fetchCandidates(): array
     {
         $db = $this->getDatabase();
 
@@ -355,9 +359,9 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
         foreach ($itemIdsByExtension as $extension => $itemIds) {
             foreach ($itemStorage->trashedOrArchivedIds($itemIds, $extension) as $itemId) {
-                    // Keyed by extens and id together because an item id is only unique
-                    // withing its own extension.
-                    $excluded[$extension . '.' . $itemId] = true;
+                // Keyed by extens and id together because an item id is only unique
+                // withing its own extension.
+                $excluded[$extension . '.' . $itemId] = true;
             }
         }
 
@@ -402,7 +406,20 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             'executed_at'    => Factory::getDate()->toSql(),
         ];
 
-        $db->insertObject('#__workflow_automation_log', $row);
+        // insertObject() returns true or throws; there is no falsy failure to check for, which
+        // is why the return was discarded. The catch is what actually matters here. This row is
+        // a record of what happened, not part of making it happen, and letting a logging failure
+        // escape into fireRule()'s catch would report a transition that fired perfectly well as
+        // a failure, flag the item for intervention, and stop it being retried, all because an
+        // audit row could not be written.
+        try {
+            $db->insertObject('#__workflow_automation_log', $row);
+        } catch (\Throwable $error) {
+            $this->logTask(
+                'Could not write the automation log row for item ' . (int) $item->item_id . ': ' . $error->getMessage(),
+                'warning'
+            );
+        }
     }
 
     /**
@@ -466,7 +483,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         // One item can appear once per rule on its stage, so the ids are deduplicated before
         // they reach the query.
         $itemStateIds = array_values(array_unique(
-            array_map(static fn (DueAutomation $candidate): int => $candidate->item_state_id, $candidates)
+            array_map(static fn(DueAutomation $candidate): int => $candidate->item_state_id, $candidates)
         ));
 
         $db = $this->getDatabase();
@@ -474,7 +491,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->update($db->quoteName('#__workflow_item_state'))
             ->set($db->quoteName('last_checked_at') . ' = :now')
             ->whereIn($db->quoteName('id'), $itemStateIds)
-            ->bind(':now', $now);
+            ->bind(':now', $now, ParameterType::STRING);
 
         $db->setQuery($updateQuery)->execute();
     }
@@ -661,7 +678,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             // Highest priority wins: the lowest ordering value. oldest rule wins on a tie
             usort(
                 $eligibleRules,
-                static fn (object $a, object $b): int => [(int) $a->ordering, (int) $a->rule_id] <=> [(int) $b->ordering, (int) $b->rule_id]
+                static fn(object $a, object $b): int => [(int) $a->ordering, (int) $a->rule_id] <=> [(int) $b->ordering, (int) $b->rule_id]
             );
             return $eligibleRules[0];
         }

@@ -33,7 +33,7 @@ if (empty($items)) : ?>
         <span class="icon-info-circle" aria-hidden="true"></span>
         <?php echo Text::_('COM_WORKFLOW_UPCOMING_EMPTY'); ?>
     </div>
-    <?php
+<?php
     return;
 endif;
 
@@ -105,7 +105,8 @@ $unitKeys = [
                     // beside a perfectly good fire time when it belongs to another rule on the same
                     // stage, one that lost the race to fire first but is still broken.
                     if ($transition->failureReason !== '') : ?>
-                        <div class="small text-muted mt-1">
+                        <div class="small text-warning-emphasis mt-1">
+                            <span class="icon-warning" aria-hidden="true"></span>
                             <?php echo htmlspecialchars($transition->failureReason, ENT_QUOTES, 'UTF-8'); ?>
                         </div>
                         <?php if ($transition->failedAt !== null) : ?>
