@@ -33,7 +33,7 @@ if (empty($items)) : ?>
         <span class="icon-info-circle" aria-hidden="true"></span>
         <?php echo Text::_('COM_WORKFLOW_UPCOMING_EMPTY'); ?>
     </div>
-<?php
+    <?php
     return;
 endif;
 

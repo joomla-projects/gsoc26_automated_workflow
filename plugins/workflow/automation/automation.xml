@@ -12,11 +12,11 @@
 	<namespace path="src">Joomla\Plugin\Workflow\Automation</namespace>
 	<files>
 		<folder plugin="automation">services</folder>
+		<folder>forms</folder>
 		<folder>src</folder>
 	</files>
 	<languages>
 		<language tag="en-GB">language/en-GB/plg_workflow_automation.ini</language>
 		<language tag="en-GB">language/en-GB/plg_workflow_automation.sys.ini</language>
 	</languages>
-	<!-- I will add the <config> when I build the automation tab UI. For now I want the stage logger to fire for all workflow transitions without filtering -->
 </extension>
