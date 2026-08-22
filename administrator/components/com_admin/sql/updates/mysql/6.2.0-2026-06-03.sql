@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS `#__workflow_item_state` (
     `extension` varchar(50) NOT NULL,
     `stage_id` int NOT NULL COMMENT 'Foreign Key to #__workflow_stages.id',
     `entered_at` datetime NOT NULL COMMENT 'When the item arrived in stage_id',
-	`triggered_by` ENUM('manual', 'automation') NOT NULL DEFAULT 'manual' COMMENT 'Determine if a transition was triggered manually or by the automation',
+	`triggered_by` varchar(20) NOT NULL DEFAULT 'manual' COMMENT 'Determine if a transition was triggered manually or by the automation',
 	`requires_intervention` tinyint NOT NULL DEFAULT 0 COMMENT 'Set when an automated transition failed; excluded from the scheduler until an admin clears it',
 	`last_checked_at` datetime DEFAULT NULL COMMENT 'When the scheduler last considered this item; null means never',
 	`last_failure_at` datetime DEFAULT NULL COMMENT 'When this item last could not be evaluated; null means it evaluated cleanly',
