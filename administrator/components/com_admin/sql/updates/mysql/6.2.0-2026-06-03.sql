@@ -16,8 +16,7 @@ CREATE TABLE IF NOT EXISTS `#__workflow_automation_rules` (
     `modified_by` int NOT NULL DEFAULT 0,
     PRIMARY KEY (`id`),
 	UNIQUE KEY `idx_transition` (`transition_id`),
-	KEY `idx_published` (`published`),
-	KEY `idx_run_as` (`run_as_user_id`)
+	KEY `idx_published` (`published`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `#__workflow_item_state` (
@@ -34,8 +33,7 @@ CREATE TABLE IF NOT EXISTS `#__workflow_item_state` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `idx_item_extension` (`item_id`, `extension`),
     KEY `idx_stage_entered` (`stage_id`, `entered_at`),
-	KEY `idx_requires_intervention` (`requires_intervention`),
-	KEY `idx_last_checked` (`last_checked_at`)
+	KEY `idx_requires_intervention` (`requires_intervention`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (
@@ -52,7 +50,6 @@ CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (
     `note` varchar(500) DEFAULT NULL,
     `executed_at` datetime NOT NULL,
     PRIMARY KEY (`id`),
-    KEY `idx_rule_id` (`rule_id`),
     KEY `idx_item_id` (`item_id`),
     KEY `idx_executed_at` (`executed_at`),
     KEY `idx_exit_code` (`exit_code`)

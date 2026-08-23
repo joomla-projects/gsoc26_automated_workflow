@@ -21,8 +21,6 @@ CREATE UNIQUE INDEX "#__workflow_automation_rules_idx_transition" ON "#__workflo
 
 CREATE INDEX "#__workflow_automation_rules_idx_published" ON "#__workflow_automation_rules" ("published");
 
-CREATE INDEX "#__workflow_automation_rules_idx_run_as" ON "#__workflow_automation_rules" ("run_as_user_id");
-
 COMMENT ON COLUMN "#__workflow_automation_rules"."transition_id" IS 'Foreign Key to #__workflow_transitions.id';
 
 COMMENT ON COLUMN "#__workflow_automation_rules"."rule_type" IS 'delay or cron';
@@ -53,8 +51,6 @@ CREATE TABLE IF NOT EXISTS "#__workflow_item_state" (
 CREATE INDEX "#__workflow_item_state_idx_stage_entered" ON "#__workflow_item_state" ("stage_id", "entered_at");
 
 CREATE INDEX "#__workflow_item_state_idx_requires_intervention" ON "#__workflow_item_state" ("requires_intervention");
-
-CREATE INDEX "#__workflow_item_state_idx_last_checked" ON "#__workflow_item_state" ("last_checked_at");
 
 COMMENT ON COLUMN "#__workflow_item_state"."item_id" IS 'Extension table id value';
 
@@ -87,8 +83,6 @@ CREATE TABLE IF NOT EXISTS "#__workflow_automation_log" (
     "executed_at" timestamp without time zone NOT NULL,
     PRIMARY KEY ("id")
 );
-
-CREATE INDEX "#__workflow_automation_log_idx_rule_id" ON "#__workflow_automation_log" ("rule_id");
 
 CREATE INDEX "#__workflow_automation_log_idx_item_id" ON "#__workflow_automation_log" ("item_id");
 
