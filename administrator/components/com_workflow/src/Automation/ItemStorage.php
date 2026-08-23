@@ -89,7 +89,7 @@ final class ItemStorage
             return [];
         }
 
-        $db = $this->database;
+        $db                     = $this->database;
         $trashedOrArchivedQuery = $db->getQuery(true)
             ->select($db->quoteName($storage['key']))
             ->from($db->quoteName($storage['table']))
@@ -134,7 +134,7 @@ final class ItemStorage
             return [];
         }
 
-        $db = $this->database;
+        $db    = $this->database;
         $query = $db->getQuery(true)
             ->select($db->quoteName([$storage['key'], $titleColumn]))
             ->from($db->quoteName($storage['table']))

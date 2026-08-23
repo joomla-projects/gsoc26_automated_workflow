@@ -359,7 +359,7 @@ final class UpcomingTransitionsCalculator
         // fault wins, and when only the stored one exists it is shown with its timestamp while
         // the status is left alone. The view has no business claiming a fault it cannot see.
         $failureReason = $discoveredReason !== '' ? $discoveredReason : $storedReason;
-        $failedAt = $discoveredReason !== '' ? null : $storedAt;
+        $failedAt      = $discoveredReason !== '' ? null : $storedAt;
 
         return new UpcomingTransition(
             itemId: (int) $row->item_id,

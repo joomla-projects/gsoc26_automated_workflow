@@ -88,7 +88,7 @@ class UpcomingtransitionField extends FormField
             // Guarded rather than assumed. Every status that reaches here today carries a fire
             // time, but this is the third place that has to know the whole list, and taking the
             // edit screen down is a heavy price for a status someone forgot to add here.
-            default           => $upcoming->firesAt === null
+            default => $upcoming->firesAt === null
                 ? '<span class="badge bg-secondary">' . Text::_('COM_WORKFLOW_UPCOMING_STATUS_NOT_SCHEDULED') . '</span>'
                 : '<div>' . RelativeTime::until($upcoming->firesAt) . '</div>'
                 . '<div class="small text-muted">' . HTMLHelper::_('date', $upcoming->firesAt->format('Y-m-d H:i:s'), Text::_('DATE_FORMAT_LC2')) . '</div>'

@@ -206,7 +206,7 @@ class LogsModel extends ListModel
             return false;
         }
 
-        $db = $this->getDatabase();
+        $db                     = $this->getDatabase();
         $clearInterventionQuery = $db->getQuery(true)
             ->update($db->quoteName('#__workflow_item_state'))
             ->set($db->quoteName('requires_intervention') . ' = 0')

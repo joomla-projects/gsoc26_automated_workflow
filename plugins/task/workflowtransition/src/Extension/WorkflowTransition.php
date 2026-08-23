@@ -361,7 +361,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         }
 
         $itemStorage = new ItemStorage($this->getDatabase());
-        $excluded = [];
+        $excluded    = [];
 
         foreach ($itemIdsByExtension as $extension => $itemIds) {
             foreach ($itemStorage->trashedOrArchivedIds($itemIds, $extension) as $itemId) {
@@ -377,7 +377,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
         return array_values(array_filter(
             $candidates,
-            static fn(DueAutomation $candidate): bool
+            static fn (DueAutomation $candidate): bool
             => !isset($excluded[$candidate->extension . '.' . $candidate->item_id])
         ));
     }
@@ -516,10 +516,10 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         // One item can appear once per rule on its stage, so the ids are deduplicated before
         // they reach the query.
         $itemStateIds = array_values(array_unique(
-            array_map(static fn(DueAutomation $candidate): int => $candidate->item_state_id, $candidates)
+            array_map(static fn (DueAutomation $candidate): int => $candidate->item_state_id, $candidates)
         ));
 
-        $db = $this->getDatabase();
+        $db          = $this->getDatabase();
         $updateQuery = $db->getQuery(true)
             ->update($db->quoteName('#__workflow_item_state'))
             ->set($db->quoteName('last_checked_at') . ' = :now')
@@ -725,7 +725,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             // happened to return.
             usort(
                 $eligibleRules,
-                static fn(array $a, array $b): int => [$a['deadline'], (int) $a['rule']->ordering, (int) $a['rule']->rule_id]
+                static fn (array $a, array $b): int => [$a['deadline'], (int) $a['rule']->ordering, (int) $a['rule']->rule_id]
                     <=> [$b['deadline'], (int) $b['rule']->ordering, (int) $b['rule']->rule_id]
             );
 

@@ -10,10 +10,10 @@
 
 namespace Joomla\Plugin\Workflow\Automation\Extension;
 
+use Joomla\CMS\Component\ComponentHelper;
 use Joomla\CMS\Event\Model\AfterSaveEvent;
 use Joomla\CMS\Event\Model\PrepareFormEvent;
 use Joomla\CMS\Event\Workflow\WorkflowTransitionEvent;
-use Joomla\CMS\Component\ComponentHelper;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Form\Form;
 use Joomla\CMS\Log\Log;
@@ -189,10 +189,10 @@ final class Automation extends CMSPlugin implements SubscriberInterface
         }
 
         $extension     = $event->getExtension();
-        $toStageId   = (int) $transition->to_stage_id;
-        $now         = Factory::getDate()->toSql();
-        $triggeredBy = $event->getTriggeredBy();
-        $pksInt      = array_map('intval', $event->getPks());
+        $toStageId     = (int) $transition->to_stage_id;
+        $now           = Factory::getDate()->toSql();
+        $triggeredBy   = $event->getTriggeredBy();
+        $pksInt        = array_map('intval', $event->getPks());
 
         if ($pksInt === []) {
             return;
@@ -344,8 +344,8 @@ final class Automation extends CMSPlugin implements SubscriberInterface
             return;
         }
 
-        $db = $this->getDatabase();
-        $now = Factory::getDate()->toSql();
+        $db          = $this->getDatabase();
+        $now         = Factory::getDate()->toSql();
         $insertQuery = $db->getQuery(true)
             ->insert($db->quoteName('#__workflow_item_state'))
             ->columns($db->quoteName([
