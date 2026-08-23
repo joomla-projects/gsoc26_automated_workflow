@@ -139,7 +139,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      *
      * $event cannot be removed. standardRoutineHandler() reflects on the method and requires
      * exactly one required parameter typed ExecuteTaskEvent with an int return; drop it and
-     *  the plugin logs "Incorrect routine method signature" and refuses to run
+     * the plugin logs "Incorrect routine method signature" and refuses to run
      *
      * @param   ExecuteTaskEvent  $event  The scheduler event.
      *
@@ -276,7 +276,10 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 $db->quoteName('war.cron_expression'),
                 $db->quoteName('war.item_filter'),
                 $db->quoteName('war.fire_condition'),
-                $db->quoteName('war.ordering'),
+                // The transition's ordering, not the rule's. A transition carries at most one
+                // rule, so rules only ever compete across transitions, and transition ordering
+                // is what an administrator can actually set by dragging in the Transitions list.
+                $db->quoteName('wt.ordering'),
                 $db->quoteName('wis.item_id'),
                 $db->quoteName('wis.extension'),
                 $db->quoteName('wis.id', 'item_state_id'),
@@ -320,7 +323,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             )
             // Among rows checked equally long ago, the one waiting longest in its stage first.
             ->order($db->quoteName('wis.entered_at') . ' ASC')
-            ->order($db->quoteName('war.ordering') . ' ASC')
+            ->order($db->quoteName('wt.ordering') . ' ASC')
             ->setLimit(self::MAX_CANDIDATES_PER_RUN);
 
         $candidates = array_map(

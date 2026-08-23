@@ -275,7 +275,7 @@ final class UpcomingTransitionsCalculator
                     $db->quoteName('war.cron_expression'),
                     $db->quoteName('war.item_filter'),
                     $db->quoteName('war.fire_condition'),
-                    $db->quoteName('war.ordering'),
+                    $db->quoteName('wt.ordering'),
                 ]
             )
             ->from($db->quoteName('#__workflow_item_state', 'wis'))
@@ -310,7 +310,12 @@ final class UpcomingTransitionsCalculator
             ->where($db->quoteName('w.published') . ' = 1')
             ->where($db->quoteName('wt.published') . ' = 1')
             ->where($db->quoteName('war.published') . ' = 1')
-            ->order($db->quoteName('war.ordering') . ' ASC');
+            // Not cosmetic. buildFromRows() keeps the first row on a tie, because isSooner()
+            // answers false for equal deadlines, so this clause is what makes transition
+            // ordering the tiebreak. selectRuleForItem() compares it explicitly for the sam
+            // reason. Change or remove this and the two sides quietly start disagreeing about
+            // which of two simultaneously-due transitions fires.
+            ->order($db->quoteName('wt.ordering') . ' ASC');
     }
 
     /**
