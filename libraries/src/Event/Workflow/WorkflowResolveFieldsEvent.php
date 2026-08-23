@@ -99,9 +99,16 @@ class WorkflowResolveFieldsEvent extends Event
     /**
      * Supplies the resolved values, and claims the check.
      *
+     * Keyed by item id, deliberately, rather than a list running parallel to the ids that were
+     * asked for. A list only works while every item gets an answer: omit one and every value
+     * after it maps to the wrong item, silently, so a rule fires on the strength of a different
+     * item's data. A map cannot drift out of step, and it makes "no answer for this item"
+     * something a provider can express rather than something the caller has to infer from a
+     * length mismatch.
+     *
      * Call this even with an empty array when the check is yours. That is what separates
      * "this check belongs to me and I could not answer for those items" from "nobody here
-     * knows this check", which the two cases are reported very differently for.
+     * knows this check", which are reported very differently.
      *
      * Omitting an item is allowed and means the check cannot be evaluated for it: no rule
      * will fire on that item, rather than a comparison being made against a guess. A source
@@ -124,6 +131,19 @@ class WorkflowResolveFieldsEvent extends Event
 
     /**
      * Whether any plugin claimed this check, regardless of how many items it answered for.
+     *
+     * Not inferable from the values, which is the reason it exists. A plugin that owns the check
+     * but could answer for none of the items this run returns an empty map, and that is
+     * indistinguishable from no plugin having listened at all. The two need opposite treatment:
+     * the first is a working extension having a bad day, so the items wait and are reconsidered
+     * next run, while the second is a rule pointing at a check the site no longer has, which is
+     * a configuration fault someone has to go and fix. See ItemFieldResolver::resolveBatch(),
+     * which throws only for the second.
+     *
+     * The list event could be dispatched to ask the same thing, but it would mean firing a
+     * second event to work out something the first one already knows, and it answers a subtly
+     * different question: which checks can be offered, rather than whether one was claimed on
+     * this particular resolve.
      *
      * @return  boolean
      *
