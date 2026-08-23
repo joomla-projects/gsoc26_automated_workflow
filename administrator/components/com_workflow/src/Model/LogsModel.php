@@ -124,8 +124,32 @@ class LogsModel extends ListModel
                     ->bind(':itemId', $itemId, ParameterType::INTEGER);
             } else {
                 $search = '%' . str_replace(' ', '%', trim($search)) . '%';
-                $automationLogQuery->where($db->quoteName('l.note') . ' LIKE :search')
-                    ->bind(':search', $search);
+
+                // The title lives on the extension's own table, so it cannot be joined: one query
+                // cannot join a different table per row. A subquery works because the list is
+                // already scoped to a single extension, and it keeps the matching in the database
+                // rather than pulling every matching id into PHP first.
+                $titleLocation = $extension !== ''
+                    ? (new ItemStorage($db))->titleLocation($extension)
+                    : null;
+
+                if ($titleLocation !== null) {
+                    $automationLogQuery->where(
+                        '(' . $db->quoteName('l.note') . ' LIKE :search'
+                            . ' OR ' . $db->quoteName('l.item_id') . ' IN ('
+                            . 'SELECT ' . $db->quoteName($titleLocation['key'])
+                            . ' FROM ' . $db->quoteName($titleLocation['table'])
+                            . ' WHERE ' . $db->quoteName($titleLocation['titleColumn']) . ' LIKE :titleSearch'
+                            . '))'
+                    )
+                        ->bind(':search', $search)
+                        ->bind(':titleSearch', $search);
+                } else {
+                    // No extension in scope, or one that does not describe its own table, so the
+                    // note is all there is to match on.
+                    $automationLogQuery->where($db->quoteName('l.note') . ' LIKE :search')
+                        ->bind(':search', $search);
+                }
             }
         }
 

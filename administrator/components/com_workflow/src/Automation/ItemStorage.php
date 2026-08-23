@@ -190,6 +190,38 @@ final class ItemStorage
     }
 
     /**
+     * Where an extension keeps its items and which column holds their titles.
+     *
+     * locate() answers the first half and columnFor() the second; this pairs them so a caller
+     * that wants to search titles can build one subquery instead of pulling every matching id
+     * into PHP first. Every value returned has already been checked against a strict pattern,
+     * so it is safe to put through quoteName().
+     *
+     * @param   string  $extension  The workflow extension, e.g. com_content.article.
+     *
+     * @return  array|null  ['table' => ..., 'key' => ..., 'titleColumn' => ...], or null when
+     *                      the extension does not describe itself well enough to be searched.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function titleLocation(string $extension): ?array
+    {
+        $location = $this->locate($extension);
+
+        if ($location === null) {
+            return null;
+        }
+
+        $titleColumn = $this->columnFor($extension, 'title');
+
+        if ($titleColumn === null) {
+            return null;
+        }
+
+        return $location + ['titleColumn' => $titleColumn];
+    }
+
+    /**
      * Which real column an extension uses for one of Joomla's logical field names.
      *
      * Asks the extension's own Table class through getColumnAlias(), because the answer cannot
