@@ -1310,7 +1310,7 @@ CREATE TABLE IF NOT EXISTS "#__workflow_automation_rules" (
     PRIMARY KEY ("id")
 );
 
-CREATE INDEX "#__workflow_automation_rules_idx_transition" ON "#__workflow_automation_rules" ("transition_id");
+CREATE UNIQUE INDEX "#__workflow_automation_rules_idx_transition" ON "#__workflow_automation_rules" ("transition_id");
 
 CREATE INDEX "#__workflow_automation_rules_idx_published" ON "#__workflow_automation_rules" ("published");
 

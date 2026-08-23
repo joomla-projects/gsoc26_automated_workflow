@@ -226,13 +226,27 @@ class TransitionModel extends AdminModel
             $data['published'] = 0;
         }
 
-        // return parent::save($data);
         if (!parent::save($data)) {
             return false;
         }
 
         $pk = (int) $this->getState($this->getName() . '.id');
-        $this->saveAutomationRule($pk, $automationRule);
+
+        try {
+            $this->saveAutomationRule($pk, $automationRule);
+        } catch (\Throwable $error) {
+            // parent::save() has already committed the transition, so there is nothing to undo
+            // here. saveAutomationRule() rolls its own transaction back, so the previously
+            // stored rule survives intact. What must not survive is the exception: unhandled it
+            // reaches the user as a 500 page that says nothing about which half of the save
+            // went through.
+            $app->enqueueMessage(
+                Text::sprintf('COM_WORKFLOW_AUTOMATION_RULE_SAVE_FAILED', $error->getMessage()),
+                'error'
+            );
+
+            return false;
+        }
 
         return true;
     }
@@ -388,10 +402,16 @@ class TransitionModel extends AdminModel
     }
 
     /**
-     * Persists the automation rules for a transition, replacing any existing set.
+     * Persists the automation rule for a transition, replacing whatever was there.
      *
-     * @param   integer  $transitionId  The transition id.
-     * @param   array    $rules         Submitted rule rows.
+     * Delete-then-insert rather than update, because a transition carries at most one rule and
+     * the same call has to handle three cases: no rule before and one now, one before and a
+     * different one now, and one before and none now when the administrator switches automation
+     * off. A unique key on transition_id enforces the "at most one" so this cannot quietly
+     * discard a second rule that should never have existed.
+     *
+     * @param   integer  $transitionId    The transition id.
+     * @param   array    $automationRule  The submitted rule, or empty to clear.
      *
      * @return  void
      *

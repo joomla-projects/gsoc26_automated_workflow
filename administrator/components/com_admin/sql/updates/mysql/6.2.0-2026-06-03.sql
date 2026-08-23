@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS `#__workflow_automation_rules` (
     `modified` datetime NOT NULL,
     `modified_by` int NOT NULL DEFAULT 0,
     PRIMARY KEY (`id`),
-	KEY `idx_transition` (`transition_id`),
+	UNIQUE KEY `idx_transition` (`transition_id`),
 	KEY `idx_published` (`published`),
 	KEY `idx_run_as` (`run_as_user_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
