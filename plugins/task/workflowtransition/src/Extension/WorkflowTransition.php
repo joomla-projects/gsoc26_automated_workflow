@@ -365,8 +365,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
         foreach ($itemIdsByExtension as $extension => $itemIds) {
             foreach ($itemStorage->trashedOrArchivedIds($itemIds, $extension) as $itemId) {
-                // Keyed by extens and id together because an item id is only unique
-                // withing its own extension.
+                // Keyed by extension and id together because an item id is only unique
+                // within its own extension.
                 $excluded[$extension . '.' . $itemId] = true;
             }
         }
