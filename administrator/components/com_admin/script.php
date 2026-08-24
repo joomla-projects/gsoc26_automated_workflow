@@ -260,8 +260,8 @@ class JoomlaInstallerScript
         $now = Factory::getDate();
 
         $task->bind([
-            'title'           => 'Workflow Automation',
-            'type'            => 'workflow.automation',
+            'title' => 'Workflow Automation',
+            'type'  => 'workflow.automation',
 
             // Fifteen minutes is a starting value, not a constraint: nothing in the plugin reads
             // it, and an administrator can change the interval, swap it for a cron expression,
@@ -274,12 +274,12 @@ class JoomlaInstallerScript
                 'exec-day'         => $now->format('d'),
                 'exec-time'        => $now->format('H:i'),
             ]),
-            'cron_rules'      => json_encode(['type' => 'interval', 'exp' => 'PT15M']),
-            'state'           => 1,
-            'next_execution'  => Factory::getDate('+15 minutes')->toSql(),
+            'cron_rules'     => json_encode(['type' => 'interval', 'exp' => 'PT15M']),
+            'state'          => 1,
+            'next_execution' => Factory::getDate('+15 minutes')->toSql(),
 
             // Silent on success, loud on failure, matching the three tasks Joomla seeds itself.
-            'params'          => json_encode([
+            'params' => json_encode([
                 'individual_log' => false,
                 'log_file'       => '',
                 'notifications'  => [
