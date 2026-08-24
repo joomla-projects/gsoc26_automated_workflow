@@ -148,6 +148,17 @@ class JoomlaInstallerScript
             $this->collectError('Further update', $e);
         }
 
+        // Give the site a workflow automation task if it has not got one. Its own try/catch
+        // rather than joining the block above, so a failure here cannot stop the cache being
+        // cleaned: a missing task is an inconvenience, a stale cache after an update is not.
+        try {
+            $this->createWorkflowAutomationTask();
+        } catch (\Throwable $e) {
+            $this->collectError('createWorkflowAutomationTask', $e);
+        }
+
+        // Clean cache
+
         // Clean cache
         try {
             $this->cleanJoomlaCache();
@@ -205,6 +216,87 @@ class JoomlaInstallerScript
             $this->collectError(__METHOD__, $e);
 
             return;
+        }
+    }
+
+    /**
+     * Creates the workflow automation scheduler task on a site that does not have one.
+     * Runs on every update and does nothing when the task is already there. That also
+     * means an administrator who deleted it gets it back the next update rather than
+     * being stuck without it.
+     *
+     * @return void
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    protected function createWorkflowAutomationTask()
+    {
+        $db = Factory::getDbo();
+
+        // Matched on type, not title. The title belongs to the administrator and
+        // renamed task is still the same task. A disabled one counts as present too:
+        // switching it off is a decision, and quietly recreating it on the next update
+        // would overrule that decision.
+        $existing = $db->setQuery(
+            $db->createQuery()
+                ->select($db->quoteName('id'))
+                ->from($db->quoteName('#__scheduler_tasks'))
+                ->where($db->quoteName('type') . ' = ' . $db->quote('workflow.automation'))
+        )->loadResult();
+
+        if ($existing) {
+            return;
+        }
+
+        // Reached through the component rather than by importing the class directly, matching
+        // how deleteUnexistingFiles() reaches com_cache below. During an update the autoloader
+        // map can still be the one from before the files changed, so booting the component is
+        // the reliable way to get at its classes.
+        /** @var \Joomla\Component\Scheduler\Administrator\Table\TaskTable $task */
+        $task = Factory::getApplication()->bootComponent('com_scheduler')
+            ->getMVCFactory()
+            ->createTable('Task', 'Administrator');
+
+        $now = Factory::getDate();
+
+        $task->bind([
+            'title'           => 'Workflow Automation',
+            'type'            => 'workflow.automation',
+
+            // Fifteen minutes is a starting value, not a constraint: nothing in the plugin reads
+            // it, and an administrator can change the interval, swap it for a cron expression,
+            // or switch the task off entirely. It is deliberately slower than a developer would
+            // choose, because this ships to every Joomla site including the many that never turn
+            // workflows on, and on those the run finds no candidates and exits immediately.
+            'execution_rules' => json_encode([
+                'rule-type'        => 'interval-minutes',
+                'interval-minutes' => 15,
+                'exec-day'         => $now->format('d'),
+                'exec-time'        => $now->format('H:i'),
+            ]),
+            'cron_rules'      => json_encode(['type' => 'interval', 'exp' => 'PT15M']),
+            'state'           => 1,
+            'next_execution'  => Factory::getDate('+15 minutes')->toSql(),
+
+            // Silent on success, loud on failure, matching the three tasks Joomla seeds itself.
+            'params'          => json_encode([
+                'individual_log' => false,
+                'log_file'       => '',
+                'notifications'  => [
+                    'success_mail'       => '0',
+                    'failure_mail'       => '1',
+                    'fatal_failure_mail' => '1',
+                    'orphan_mail'        => '1',
+                ],
+            ]),
+        ]);
+
+        if (!$task->check() || !$task->store()) {
+            // Collected, not thrown. A site without this task still works in every other
+            // respect, the rest of the update should be allowed to finish, and an administrator
+            // can add the task by hand from Scheduled Tasks. Failing the whole update over a
+            // scheduler row would be wildly out of proportion.
+            $this->collectError(__METHOD__, new \RuntimeException($task->getError() ?: 'The task could not be stored.'));
         }
     }
 
