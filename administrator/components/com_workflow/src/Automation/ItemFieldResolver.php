@@ -108,8 +108,8 @@ final class ItemFieldResolver
         // subquery lets the primary key do the work, and the subquery uses the alias index.
 
         $tagTypeSubquery = '(SELECT ' . $db->quoteName('ct.type_id')
-            . ' FROM ' . $this->database->quoteName('#__content_types', 'ct')
-            . ' WHERE ' . $this->database->quoteName('ct.type_alias') . ' = :extension)';
+            . ' FROM ' . $db->quoteName('#__content_types', 'ct')
+            . ' WHERE ' . $db->quoteName('ct.type_alias') . ' = :extension)';
 
         // Tags for the whole batch in one query.
         $tagQuery = $db->getQuery(true)
@@ -161,9 +161,12 @@ final class ItemFieldResolver
             }
         }
 
-        foreach ($itemIds as $itemId) {
-            $this->preloadedItems[$extension][$itemId] = true;
-        }
+        // Everything asked for is marked as preloaded, including ids that turned out to have no
+        // tags, no category or no author. That is the point: a miss recorded here is the
+        // difference between "looked and found nothing" and "never looked", and only the second
+        // should fall back to a per-item query.
+        $this->preloadedItems[$extension] = array_fill_keys($itemIds, true)
+            + ($this->preloadedItems[$extension] ?? []);
     }
 
     /**
@@ -172,7 +175,7 @@ final class ItemFieldResolver
      * Looked-up values are cached per field so a rule that references the same field in
      * both its filter and its condition only hits the database once.
      *
-     * @params integer $itemId The content item id.
+     * @param integer $itemId The content item id.
      * @param string $extension The workflow extension, e.g. com_content.article.
      * @param \DateTime|null $evaluationTime The moment the moment-fields (day of week, date)
      * should describe. Defaults to now. Passing a future moment lets a caller ask "would this condition hold
