@@ -22,6 +22,7 @@ use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\Component\Workflow\Administrator\Automation\BuiltinConditionFields;
 use Joomla\Database\DatabaseInterface;
 use Joomla\Database\ParameterType;
+use Joomla\Event\DispatcherInterface;
 
 /**
  * Renders one automation condition builder.
@@ -115,7 +116,9 @@ class ConditionbuilderField extends FormField
             ['extension' => $extension]
         );
 
-        $app->getDispatcher()->dispatch($event->getName(), $event);
+        // From the container, not $app->getDispatcher(): that lives on EventAwareInterface,
+        // which is part of the 3.x compatibility layer and goes away in 7.0.
+        Factory::getContainer()->get(DispatcherInterface::class)->dispatch($event->getName(), $event);
 
         // Union rather than array_merge: where both declare the same name, the left
         // operand's entry survives, so a built-in cannot be shadowed by an installed extension.

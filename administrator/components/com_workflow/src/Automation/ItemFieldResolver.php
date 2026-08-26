@@ -14,6 +14,7 @@ use Joomla\CMS\Event\Workflow\WorkflowResolveFieldsEvent;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\Database\DatabaseInterface;
+use Joomla\Event\DispatcherInterface;
 
 // phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;
@@ -232,7 +233,6 @@ final class ItemFieldResolver
     {
         PluginHelper::importPlugin('workflow');
 
-        $app   = Factory::getApplication();
         $event = new WorkflowResolveFieldsEvent(
             'onWorkflowResolveConditionFields',
             [
@@ -243,7 +243,9 @@ final class ItemFieldResolver
             ]
         );
 
-        $app->getDispatcher()->dispatch($event->getName(), $event);
+        // From the container, not $app->getDispatcher(): that lives on EventAwareInterface,
+        // which is part of the 3.x compatibility layer and goes away in 7.0.
+        Factory::getContainer()->get(DispatcherInterface::class)->dispatch($event->getName(), $event);
 
         // Nobody claimed the check at all, so the rule refers to something this site no longer
         // has. Kept separate from a provider that answered for no items, because that is a
