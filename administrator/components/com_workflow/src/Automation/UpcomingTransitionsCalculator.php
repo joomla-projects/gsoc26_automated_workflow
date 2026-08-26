@@ -136,6 +136,16 @@ final class UpcomingTransitionsCalculator
         $liveFailureByItem = [];
         $fallbackRowByItem = [];
 
+        // Same reason as the scheduler: one batch of lookups instead of one per row.
+        $itemIdsByExtension = [];
+        foreach ($rows as $row) {
+            $itemIdsByExtension[$row->extension][] = (int) $row->item_id;
+        }
+
+        foreach ($itemIdsByExtension as $extension => $itemIds) {
+            $this->itemFieldResolver->preload($itemIds, $extension);
+        }
+
         foreach ($rows as $row) {
             $itemKey      = $row->extension . '.' . $row->item_id;
             $resolveField = $this->itemFieldResolver->forItem((int) $row->item_id, $row->extension);

@@ -170,6 +170,19 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
         $conditionEvaluator = new ConditionEvaluator();
         $itemFieldResolver  = new ItemFieldResolver($this->getDatabase());
+
+        // Fetch every item's fields up front so evaluating filters across the batch costs a
+        // fixed number of queries rather than one lookup per item.
+        $itemIdsByExtension = [];
+
+        foreach ($candidates as $candidate) {
+            $itemIdsByExtension[$candidate->extension][] = (int) $candidate->item_id;
+        }
+
+        foreach ($itemIdsByExtension as $extension => $itemIds) {
+            $itemFieldResolver->preload($itemIds, $extension);
+        }
+
         $app                = Factory::getApplication();
         $failures           = [];
 
