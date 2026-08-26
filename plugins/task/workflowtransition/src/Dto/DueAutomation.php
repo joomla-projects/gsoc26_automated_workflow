@@ -37,9 +37,10 @@ final class DueAutomation
     public int $ordering;
     public int $item_id;
     public string $extension;
-    public int $schedule_id;
+    public int $item_state_id;
     public string $entered_at;
     public int $run_as_user_id;
+    public ?string $last_failure_reason;
 
     /**
      * Builds an instance from a database row.
@@ -54,22 +55,23 @@ final class DueAutomation
     {
         $candidate = new self();
 
-        $candidate->rule_id         = (int) $row->rule_id;
-        $candidate->transition_id   = (int) $row->transition_id;
-        $candidate->from_stage_id   = (int) $row->from_stage_id;
-        $candidate->to_stage_id     = (int) $row->to_stage_id;
-        $candidate->delay_value     = $row->delay_value !== null ? (int) $row->delay_value : null;
-        $candidate->delay_unit      = $row->delay_unit;
-        $candidate->rule_type       = (string) $row->rule_type;
-        $candidate->cron_expression = $row->cron_expression;
-        $candidate->item_filter     = $row->item_filter;
-        $candidate->fire_condition  = $row->fire_condition;
-        $candidate->ordering        = (int) $row->ordering;
-        $candidate->item_id         = (int) $row->item_id;
-        $candidate->extension       = (string) $row->extension;
-        $candidate->schedule_id     = (int) $row->schedule_id;
-        $candidate->entered_at      = (string) $row->entered_at;
-        $candidate->run_as_user_id  = (int) $row->run_as_user_id;
+        $candidate->rule_id             = (int) $row->rule_id;
+        $candidate->transition_id       = (int) $row->transition_id;
+        $candidate->from_stage_id       = (int) $row->from_stage_id;
+        $candidate->to_stage_id         = (int) $row->to_stage_id;
+        $candidate->delay_value         = $row->delay_value !== null ? (int) $row->delay_value : null;
+        $candidate->delay_unit          = $row->delay_unit;
+        $candidate->rule_type           = (string) $row->rule_type;
+        $candidate->cron_expression     = $row->cron_expression;
+        $candidate->item_filter         = $row->item_filter;
+        $candidate->fire_condition      = $row->fire_condition;
+        $candidate->ordering            = (int) $row->ordering;
+        $candidate->item_id             = (int) $row->item_id;
+        $candidate->extension           = (string) $row->extension;
+        $candidate->item_state_id       = (int) $row->item_state_id;
+        $candidate->entered_at          = (string) $row->entered_at;
+        $candidate->run_as_user_id      = (int) $row->run_as_user_id;
+        $candidate->last_failure_reason = $row->last_failure_reason;
 
         return $candidate;
     }

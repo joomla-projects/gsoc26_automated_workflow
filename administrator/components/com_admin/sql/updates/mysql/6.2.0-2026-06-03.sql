@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS `#__workflow_transition_automation` (
+CREATE TABLE IF NOT EXISTS `#__workflow_automation_rules` (
     `id` int NOT NULL AUTO_INCREMENT,
     `transition_id` int NOT NULL COMMENT 'Foreign Key to #__workflow_transitions.id',
     `published` tinyint NOT NULL DEFAULT 0,
@@ -10,36 +10,35 @@ CREATE TABLE IF NOT EXISTS `#__workflow_transition_automation` (
 	`item_filter` text COMMENT 'JSON filter tree: which items this rule applies to (evaluated at selection)',
 	`fire_condition` text COMMENT 'JSON expression tree: gate evaluated live at fire time',
     `run_as_user_id` int NOT NULL DEFAULT 0 COMMENT 'User identity used to execute the transition',
-    `loop_mode` tinyint NOT NULL DEFAULT 0 COMMENT 'Chain into the target stage rule when set',
     `created` datetime NOT NULL,
     `created_by` int NOT NULL DEFAULT 0,
     `modified` datetime NOT NULL,
     `modified_by` int NOT NULL DEFAULT 0,
     PRIMARY KEY (`id`),
-	KEY `idx_transition` (`transition_id`),
-	KEY `idx_published` (`published`),
-	KEY `idx_run_as` (`run_as_user_id`)
+	UNIQUE KEY `idx_transition` (`transition_id`),
+	KEY `idx_published` (`published`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS `#__workflow_automation_schedule` (
+CREATE TABLE IF NOT EXISTS `#__workflow_item_state` (
     `id` int NOT NULL AUTO_INCREMENT,
     `item_id` int NOT NULL DEFAULT 0 COMMENT 'Extension table id value',
     `extension` varchar(50) NOT NULL,
     `stage_id` int NOT NULL COMMENT 'Foreign Key to #__workflow_stages.id',
     `entered_at` datetime NOT NULL COMMENT 'When the item arrived in stage_id',
-    `next_transition_at` datetime NULL,
-	`triggered_by` ENUM('manual', 'automation') NOT NULL DEFAULT 'manual' COMMENT 'Determine if a transition was triggered manually or by the automation',
+	`triggered_by` varchar(20) NOT NULL DEFAULT 'manual' COMMENT 'Determine if a transition was triggered manually or by the automation',
 	`requires_intervention` tinyint NOT NULL DEFAULT 0 COMMENT 'Set when an automated transition failed; excluded from the scheduler until an admin clears it',
+	`last_checked_at` datetime DEFAULT NULL COMMENT 'When the scheduler last considered this item; null means never',
+	`last_failure_at` datetime DEFAULT NULL COMMENT 'When this item last could not be evaluated; null means it evaluated cleanly',
+	`last_failure_reason` varchar(500) DEFAULT NULL COMMENT 'Why it could not be evaluated, so the same failure is only reported once',
     PRIMARY KEY (`id`),
     UNIQUE KEY `idx_item_extension` (`item_id`, `extension`),
     KEY `idx_stage_entered` (`stage_id`, `entered_at`),
-    KEY `idx_next_transition_at` (`next_transition_at`),
 	KEY `idx_requires_intervention` (`requires_intervention`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (
     `id` int NOT NULL AUTO_INCREMENT,
-    `rule_id` int DEFAULT NULL COMMENT 'Foreign Key to #__workflow_transition_automation.id',
+    `rule_id` int DEFAULT NULL COMMENT 'Foreign Key to #__workflow_automation_rules.id',
     `item_id` int NOT NULL DEFAULT 0,
     `extension` varchar(50) NOT NULL,
     `transition_id` int NOT NULL,
@@ -51,8 +50,15 @@ CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (
     `note` varchar(500) DEFAULT NULL,
     `executed_at` datetime NOT NULL,
     PRIMARY KEY (`id`),
-    KEY `idx_rule_id` (`rule_id`),
     KEY `idx_item_id` (`item_id`),
     KEY `idx_executed_at` (`executed_at`),
     KEY `idx_exit_code` (`exit_code`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 DEFAULT COLLATE = utf8mb4_unicode_ci;
+
+INSERT INTO `#__extensions` (`package_id`, `name`, `type`, `element`, `folder`, `client_id`, `enabled`, `access`, `protected`, `locked`, `manifest_cache`, `params`, `custom_data`, `ordering`, `state`)
+SELECT 0, 'plg_task_workflowtransition', 'plugin', 'workflowtransition', 'task', 0, 1, 1, 0, 1, '', '{}', '', 10, 0
+WHERE NOT EXISTS (SELECT * FROM `#__extensions` e WHERE e.`type` = 'plugin' AND e.`element` = 'workflowtransition' AND e.`folder` = 'task' AND e.`client_id` = 0);
+
+INSERT INTO `#__extensions` (`package_id`, `name`, `type`, `element`, `folder`, `client_id`, `enabled`, `access`, `protected`, `locked`, `manifest_cache`, `params`, `custom_data`, `ordering`, `state`)
+SELECT 0, 'plg_workflow_automation', 'plugin', 'automation', 'workflow', 0, 1, 1, 0, 1, '', '{}', '', 4, 0
+WHERE NOT EXISTS (SELECT * FROM `#__extensions` e WHERE e.`type` = 'plugin' AND e.`element` = 'automation' AND e.`folder` = 'workflow' AND e.`client_id` = 0);

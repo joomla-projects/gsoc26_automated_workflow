@@ -41,7 +41,7 @@ $extension = $this->escape((string) $this->state->get('filter.extension'));
                         <thead>
                             <tr>
                                 <th scope="col"><?php echo HTMLHelper::_('searchtools.sort', 'COM_WORKFLOW_LOGS_EXECUTED_AT', 'l.executed_at', $listDirn, $listOrder); ?></th>
-                                <th scope="col"><?php echo HTMLHelper::_('searchtools.sort', 'COM_WORKFLOW_LOGS_ITEM_ID', 'l.item_id', $listDirn, $listOrder); ?></th>
+                                <th scope="col"><?php echo HTMLHelper::_('searchtools.sort', 'COM_WORKFLOW_LOGS_ITEM', 'l.item_id', $listDirn, $listOrder); ?></th>
                                 <th scope="col"><?php echo Text::_('COM_WORKFLOW_LOGS_TRANSITION'); ?></th>
                                 <th scope="col"><?php echo Text::_('COM_WORKFLOW_LOGS_STAGES'); ?></th>
                                 <th scope="col"><?php echo Text::_('COM_WORKFLOW_LOGS_RUN_AS'); ?></th>
@@ -54,6 +54,13 @@ $extension = $this->escape((string) $this->state->get('filter.extension'));
                                 $parts = explode('.', (string) $item->extension);
                                 $editLink = (!empty($parts[0]) && !empty($parts[1])) ? Route::_('index.php?option=' . $parts[0] . '&task=' . $parts[1] . '.edit&id=' . (int) $item->item_id) : '';
 
+                                // The title comes from the extension's own table, so it is not
+                                // always resolvable: an item deleted since the run, or an
+                                // extension that does not describe its table, leaves the id as
+                                // the only thing left to label the row with.
+                                $itemTitle = (string) ($item->item_title ?? '');
+                                $itemLabel = $itemTitle !== '' ? $itemTitle : (string) (int) $item->item_id;
+
                                 $resetLink = ((int) $item->exit_code !== 0 && !empty($item->requires_intervention))
                                     ? Route::_('index.php?option=com_workflow&task=logs.reset&item_id=' . (int) $item->item_id . '&extension=' . urlencode($item->extension) . '&' . Session::getFormToken() . '=1')
                                     : '';
@@ -62,9 +69,12 @@ $extension = $this->escape((string) $this->state->get('filter.extension'));
                                     <td><?php echo HTMLHelper::_('date', $item->executed_at, Text::_('DATE_FORMAT_LC5')); ?></td>
                                     <td>
                                         <?php if ($editLink) : ?>
-                                            <a href="<?php echo $editLink; ?>"><?php echo (int) $item->item_id; ?></a>
+                                            <a href="<?php echo $editLink; ?>"><?php echo $this->escape($itemLabel); ?></a>
                                         <?php else : ?>
-                                            <?php echo (int) $item->item_id; ?>
+                                            <?php echo $this->escape($itemLabel); ?>
+                                        <?php endif; ?>
+                                        <?php if ($itemTitle !== '') : ?>
+                                            <div class="small text-muted"><?php echo Text::sprintf('COM_WORKFLOW_LOGS_ITEM_ID_INLINE', (int) $item->item_id); ?></div>
                                         <?php endif; ?>
                                     </td>
                                     <td><?php echo $item->transition_title ? $this->escape(Text::_($item->transition_title)) : (int) $item->transition_id; ?></td>

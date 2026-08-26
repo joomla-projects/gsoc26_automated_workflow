@@ -32,8 +32,8 @@
 			<option value="">JGLOBAL_SORT_BY</option>
 			<option value="l.executed_at ASC">COM_WORKFLOW_LOGS_EXECUTED_AT_ASC</option>
 			<option value="l.executed_at DESC">COM_WORKFLOW_LOGS_EXECUTED_AT_DESC</option>
-			<option value="l.item_id ASC">COM_WORKFLOW_LOGS_ITEM_ID_ASC</option>
-			<option value="l.item_id DESC">COM_WORKFLOW_LOGS_ITEM_ID_DESC</option>
+			<option value="l.item_id ASC">COM_WORKFLOW_LOGS_ITEM_ASC</option>
+			<option value="l.item_id DESC">COM_WORKFLOW_LOGS_ITEM_DESC</option>
 			<option value="l.exit_code ASC">COM_WORKFLOW_LOGS_RESULT_ASC</option>
 			<option value="l.exit_code DESC">COM_WORKFLOW_LOGS_RESULT_DESC</option>
 		</field>

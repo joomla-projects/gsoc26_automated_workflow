@@ -13,6 +13,7 @@ namespace Joomla\Component\Workflow\Administrator\Model;
 use Joomla\CMS\Factory;
 use Joomla\CMS\MVC\Factory\MVCFactoryInterface;
 use Joomla\CMS\MVC\Model\ListModel;
+use Joomla\Component\Workflow\Administrator\Automation\ItemStorage;
 use Joomla\Database\ParameterType;
 
 // phpcs:disable PSR1.Files.SideEffects
@@ -99,7 +100,7 @@ class LogsModel extends ListModel
             ->join('LEFT', $db->quoteName('#__workflow_stages', 'f_stage'), $db->quoteName('f_stage.id') . ' = ' . $db->quoteName('l.from_stage_id'))
             ->join('LEFT', $db->quoteName('#__workflow_stages', 't_stage'), $db->quoteName('t_stage.id') . ' = ' . $db->quoteName('l.to_stage_id'))
             ->join('LEFT', $db->quoteName('#__users', 'u'), $db->quoteName('u.id') . ' = ' . $db->quoteName('l.run_as_user_id'))
-            ->join('LEFT', $db->quoteName('#__workflow_automation_schedule', 's'), $db->quoteName('s.item_id') . ' = ' . $db->quoteName('l.item_id') . ' AND ' . $db->quoteName('s.extension') . ' = ' . $db->quoteName('l.extension'));
+            ->join('LEFT', $db->quoteName('#__workflow_item_state', 's'), $db->quoteName('s.item_id') . ' = ' . $db->quoteName('l.item_id') . ' AND ' . $db->quoteName('s.extension') . ' = ' . $db->quoteName('l.extension'));
 
         if ($extension = (string) $this->getState('filter.extension')) {
             $automationLogQuery->where($db->quoteName('l.extension') . ' = :extension')
@@ -123,8 +124,32 @@ class LogsModel extends ListModel
                     ->bind(':itemId', $itemId, ParameterType::INTEGER);
             } else {
                 $search = '%' . str_replace(' ', '%', trim($search)) . '%';
-                $automationLogQuery->where($db->quoteName('l.note') . ' LIKE :search')
-                    ->bind(':search', $search);
+
+                // The title lives on the extension's own table, so it cannot be joined: one query
+                // cannot join a different table per row. A subquery works because the list is
+                // already scoped to a single extension, and it keeps the matching in the database
+                // rather than pulling every matching id into PHP first.
+                $titleLocation = $extension !== ''
+                    ? (new ItemStorage($db))->titleLocation($extension)
+                    : null;
+
+                if ($titleLocation !== null) {
+                    $automationLogQuery->where(
+                        '(' . $db->quoteName('l.note') . ' LIKE :search'
+                            . ' OR ' . $db->quoteName('l.item_id') . ' IN ('
+                            . 'SELECT ' . $db->quoteName($titleLocation['key'])
+                            . ' FROM ' . $db->quoteName($titleLocation['table'])
+                            . ' WHERE ' . $db->quoteName($titleLocation['titleColumn']) . ' LIKE :titleSearch'
+                            . '))'
+                    )
+                        ->bind(':search', $search)
+                        ->bind(':titleSearch', $search);
+                } else {
+                    // No extension in scope, or one that does not describe its own table, so the
+                    // note is all there is to match on.
+                    $automationLogQuery->where($db->quoteName('l.note') . ' LIKE :search')
+                        ->bind(':search', $search);
+                }
             }
         }
 
@@ -139,26 +164,83 @@ class LogsModel extends ListModel
     }
 
     /**
+     * Adds each row's item title, which no join can supply.
+     *
+     * The log stores an item id and an extension; the title lives on whichever table that
+     * extension uses, so it is filled in after the fact. One query per extension in the result,
+     * not one per row.
+     *
+     * @return  object[]|false
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function getItems()
+    {
+        $items = parent::getItems();
+
+        if (empty($items)) {
+            return $items;
+        }
+
+        $idsByExtension = [];
+
+        foreach ($items as $item) {
+            $idsByExtension[$item->extension][] = (int) $item->item_id;
+        }
+
+        $itemStorage = new ItemStorage($this->getDatabase());
+        $titles      = [];
+
+        foreach ($idsByExtension as $extension => $itemIds) {
+            foreach ($itemStorage->titlesFor($itemIds, $extension) as $itemId => $title) {
+                // Keyed by extension and id together, because an item id is only unique within
+                // its own extension.
+                $titles[$extension . '.' . $itemId] = $title;
+            }
+        }
+
+        foreach ($items as $item) {
+            // The template expects this property whether or not a title was found; null means
+            // "show the id instead" rather than "no row".
+            $item->item_title = $titles[$item->extension . '.' . $item->item_id] ?? null;
+        }
+
+        return $items;
+    }
+
+    /**
      * Clears the requires_intervention flag for an item so the scheduler retries it.
      *
-     * @param integer $itemId The content item id.
-     * @param string $extension The workflow extension (e.g com_content.article)
+     * Checks the permission itself rather than trusting the caller. The controller checks too,
+     * and that is the one an administrator sees the message from, but a method that re-enables
+     * automation on an item has to be safe to call from anywhere. A future CLI command, a batch
+     * action or another extension would otherwise reach a privileged write with no check at all,
+     * and the only thing standing between them and it would be a habit.
      *
-     * @return void
+     * @param   integer  $itemId     The content item id.
+     * @param   string   $extension  The workflow extension, e.g. com_content.article.
      *
-     * @since __DEPLOY_VERSION__
+     * @return  boolean  True when the flag was cleared, false when the current user may not.
+     *
+     * @since   __DEPLOY_VERSION__
      */
-    public function clearIntervention(int $itemId, string $extension): void
+    public function clearIntervention(int $itemId, string $extension): bool
     {
+        if (!$this->getCurrentUser()->authorise('core.admin', 'com_workflow')) {
+            return false;
+        }
+
         $db                     = $this->getDatabase();
         $clearInterventionQuery = $db->getQuery(true)
-            ->update($db->quoteName('#__workflow_automation_schedule'))
+            ->update($db->quoteName('#__workflow_item_state'))
             ->set($db->quoteName('requires_intervention') . ' = 0')
             ->where($db->quoteName('item_id') . ' = :itemId')
             ->where($db->quoteName('extension') . ' = :extension')
             ->bind(':itemId', $itemId, ParameterType::INTEGER)
-            ->bind(':extension', $extension);
+            ->bind(':extension', $extension, ParameterType::STRING);
 
         $db->setQuery($clearInterventionQuery)->execute();
+
+        return true;
     }
 }

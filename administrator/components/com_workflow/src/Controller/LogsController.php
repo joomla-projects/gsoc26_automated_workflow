@@ -26,12 +26,6 @@ use Joomla\CMS\Router\Route;
 class LogsController extends BaseController
 {
     /**
-     * Controller for the automation log.
-     *
-     * @since __DEPLOY_VERSION__
-     */
-
-    /**
      * Clears the requires_intervention flag on an item so it is retried.
      *
      * @return boolean
@@ -54,8 +48,16 @@ class LogsController extends BaseController
         }
 
         if ($itemId > 0 && $extension !== '') {
+            /** @var \Joomla\Component\Workflow\Administrator\Model\LogsModel $model */
             $model = $this->getModel('Logs', 'Administrator');
-            $model->clearIntervention($itemId, $extension);
+
+            // Unreachable while both checks agree, which is the point: if they ever diverge the
+            // model's answer is the one that decides, not this one.
+            if (!$model->clearIntervention($itemId, $extension)) {
+                $this->setRedirect(Route::_($redirect, false), Text::_('JERROR_ALERTNOAUTHOR'), 'error');
+
+                return false;
+            }
 
             $this->setMessage(Text::_('COM_WORKFLOW_LOGS_RESET_SUCCESS'));
         }

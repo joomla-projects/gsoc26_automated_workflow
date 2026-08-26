@@ -246,22 +246,40 @@ $assoc = Associations::isEnabled();
                                                 $upcoming  = $upcomingByItem[$item->id];
                                                 $chipClass = match ($upcoming->status) {
                                                     'needs_attention' => 'bg-danger',
+                                                    'rule_error'      => 'bg-warning text-dark',
                                                     'not_scheduled'   => 'bg-secondary',
                                                     default           => 'bg-info',
                                                 };
-                                                $chipTip = match ($upcoming->status) {
+                                                // A clock is a promise that something is coming. A rule
+                                                // that cannot be read promises nothing, so it gets a
+                                                // warning sign instead.
+                                                $chipIcon = $upcoming->status === 'rule_error' ? 'icon-warning' : 'icon-clock';
+                                                $chipTip  = match ($upcoming->status) {
                                                     'needs_attention' => Text::_('COM_WORKFLOW_UPCOMING_STATUS_ATTENTION'),
+                                                    // The reason is the whole value of the tooltip here.
+                                                    // "Rule error" on its own sends an administrator
+                                                    // hunting through every rule on the stage.
+                                                    'rule_error'      => $upcoming->failureReason !== ''
+                                                        ? $upcoming->failureReason
+                                                        : Text::_('COM_WORKFLOW_UPCOMING_STATUS_RULE_ERROR'),
                                                     'not_scheduled'   => Text::_('COM_WORKFLOW_UPCOMING_STATUS_NOT_SCHEDULED'),
                                                     default           => $upcoming->firesAt !== null
                                                         ? RelativeTime::until($upcoming->firesAt) . ' (' . HTMLHelper::_('date', $upcoming->firesAt->format('Y-m-d H:i:s'), Text::_('DATE_FORMAT_LC2')) . ')'
                                                         : '',
                                                 };
+
+                                                // A fault the scheduler recorded but this render cannot
+                                                // reproduce is appended rather than given a badge of its
+                                                // own, because this column is one line in a dense list.
+                                                $chipTip .= $upcoming->status !== 'rule_error' && $upcoming->failureReason !== ''
+                                                    ? ' - ' . $upcoming->failureReason
+                                                    : '';
     ?>
                                                 <div class="small mt-1">
                                                     <span class="badge <?php echo $chipClass; ?> hasTooltip" <?php echo $chipTip !== '' ? ' title="' . htmlspecialchars($chipTip, ENT_QUOTES, 'UTF-8') . '"' : ''; ?>>
-                                                        <span class="icon-clock" aria-hidden="true"></span>
+                                                        <span class="<?php echo $chipIcon; ?>" aria-hidden="true"></span>
                                                         <?php echo htmlspecialchars($upcoming->toStage, ENT_QUOTES, 'UTF-8'); ?>
-                                                     </span>
+                                                    </span>
                                                 </div>
                                             <?php endif; ?>
                                         </td>

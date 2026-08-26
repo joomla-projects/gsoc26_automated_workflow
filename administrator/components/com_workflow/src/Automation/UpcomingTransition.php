@@ -35,6 +35,9 @@ final class UpcomingTransition
      * @param   string          $toStage         Title of the stage the item moves to.
      * @param   \DateTime|null  $firesAt         When the move is due (UTC), or null if uncomputable.
      * @param   string          $status          scheduled | needs_attention | not_scheduled.
+     * @param   string          $failureReason   Why the rule could not be read, or '' when it could.
+     * @param   \DateTime|null  $failedAt        When the scheduler last hit that fault, or null when
+     * the fault is one this render found for itself.
      * @param   string          $ruleType        delay | cron.
      * @param   integer|null    $delayValue      Delay amount for a delay rule.
      * @param   string|null     $delayUnit       minutes | hours | days | months.
@@ -55,6 +58,8 @@ final class UpcomingTransition
         public readonly string $toStage,
         public readonly ?\DateTime $firesAt,
         public readonly string $status,
+        public readonly string $failureReason,
+        public readonly ?\DateTime $failedAt,
         public readonly string $ruleType,
         public readonly ?int $delayValue,
         public readonly ?string $delayUnit,
