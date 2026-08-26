@@ -16,6 +16,7 @@ use Joomla\CMS\Installer\Installer;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Log\Log;
 use Joomla\CMS\Table\Asset;
+use Joomla\Database\DatabaseInterface;
 use Joomla\Database\ParameterType;
 use Joomla\Filesystem\File;
 use Joomla\Filesystem\Folder;
@@ -231,7 +232,7 @@ class JoomlaInstallerScript
      */
     protected function createWorkflowAutomationTask()
     {
-        $db = Factory::getDbo();
+        $db = Factory::getContainer()->get(DatabaseInterface::class);
 
         // Matched on type, not title. The title belongs to the administrator and
         // renamed task is still the same task. A disabled one counts as present too:
@@ -292,11 +293,10 @@ class JoomlaInstallerScript
         ]);
 
         if (!$task->check() || !$task->store()) {
-            // Collected, not thrown. A site without this task still works in every other
-            // respect, the rest of the update should be allowed to finish, and an administrator
-            // can add the task by hand from Scheduled Tasks. Failing the whole update over a
-            // scheduler row would be wildly out of proportion.
-            $this->collectError(__METHOD__, new \RuntimeException($task->getError() ?: 'The task could not be stored.'));
+            // No getError() here: it is deprecated, and the table has already set the detail on
+            // itself. What matters for the update is that this step did not complete and the
+            // rest should carry on regardless.
+            $this->collectError(__METHOD__, new \RuntimeException('The workflow automation task could not be stored.'));
         }
     }
 
