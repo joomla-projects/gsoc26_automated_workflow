@@ -64,7 +64,7 @@ $extension = $this->escape((string) $this->state->get('filter.extension'));
                                 $resetLink = ((int) $item->exit_code !== 0 && !empty($item->requires_intervention))
                                     ? Route::_('index.php?option=com_workflow&task=logs.reset&item_id=' . (int) $item->item_id . '&extension=' . urlencode($item->extension) . '&' . Session::getFormToken() . '=1')
                                     : '';
-                                ?>
+                            ?>
                                 <tr>
                                     <td><?php echo HTMLHelper::_('date', $item->executed_at, Text::_('DATE_FORMAT_LC5')); ?></td>
                                     <td>
@@ -87,10 +87,11 @@ $extension = $this->escape((string) $this->state->get('filter.extension'));
                                     <td class="text-center">
                                         <?php if ((int) $item->exit_code === 0) : ?>
                                             <span class="badge bg-success"><?php echo Text::_('COM_WORKFLOW_LOGS_RESULT_OK'); ?></span>
-                                            <?php elseif ((int) $item->exit_code === 4) : ?>
-                                                <?php // A race, not a fault: the item moved before the run reached it. Grey because the red would tell an admin
-                                                // to investigate something that resolved itself correctly. ?>
-                                                <span class="badge bg-secondary"><?php echo Text::_('COM_WORKFLOW_LOGS_RESULT_SKIPPED'); ?></span>
+                                        <?php elseif ((int) $item->exit_code === 4) : ?>
+                                            <?php // A race, not a fault: the item moved before the run reached it. Grey because the red would tell an admin
+                                            // to investigate something that resolved itself correctly.
+                                            ?>
+                                            <span class="badge bg-secondary"><?php echo Text::_('COM_WORKFLOW_LOGS_RESULT_SKIPPED'); ?></span>
                                         <?php else : ?>
                                             <span class="badge bg-danger"><?php echo Text::_('COM_WORKFLOW_LOGS_RESULT_FAILED'); ?></span>
                                             <?php if ($resetLink) : ?>
