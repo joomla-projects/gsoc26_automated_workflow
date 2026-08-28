@@ -91,6 +91,33 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     private const MAX_FAILURE_REASON_LENGTH = 500;
 
     /**
+     * Outcomes recorded in #__workflow_automation_log.exit_code.
+     *
+     * Kept as constants because the numbers appear at every call site and mean nothing on
+     * sight. The column's own comment lists them too; these are the authority and that comment
+     * follows them.
+     *
+     * @var integer
+     * @since __DEPLOY_VERSION__
+     */
+    private const EXIT_OK        = 0;
+    private const EXIT_REFUSED   = 1;
+    private const EXIT_EXCEPTION = 3;
+
+    /**
+     * The item moved on before the transition could fire.
+     *
+     * Separate from EXIT_REFUSED because it is not a fault. A candidate is fetched at the start
+     * of a run and acted on later; if somebody transitions the item by hand in between, the
+     * candidate describes a stage the item has already left. Nothing went wrong and nobody needs
+     * telling, but it belongs in the log so the run can be accounted for.
+     *
+     * @var integer
+     * @since __DEPLOY_VERSION__
+     */
+    private const EXIT_NO_LONGER_APPLICABLE = 4;
+
+    /**
      * Stands in for "never checked" when sorting. The earliest datetime MySQL accepts, so a
      * row that has never been considered always sorts ahead of one that has.
      *
@@ -543,6 +570,42 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     }
 
     /**
+     * Whether the item has left the stage, its candidate was fetched from.
+     *
+     * Candidates are read once at the start of a run and acted on one by one, so
+     * an item can be moved by hand in between. executeTransition() spots this for
+     * itself and refuses, but a refusal carries no reason, so the run cannot tell a stale
+     * candidate from a genuine failure. Asking first is what makes them distinguishable.
+     *
+     * @param DueAutomation $rule The winning candidate.
+     *
+     * @return boolean True when the item is no longer in the stage the candidate came from.
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function hasLeftItsStage(DueAutomation $rule): bool
+    {
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->select($db->quoteName('stage_id'))
+            ->from($db->quoteName('#__workflow_associations'))
+            ->where($db->quoteName('item_id') . ' = :itemId')
+            ->where($db->quoteName('extension') . ' = :extension')
+            ->bind(':itemId', $rule->item_id, ParameterType::INTEGER)
+            ->bind(':extension', $rule->extension, ParameterType::STRING);
+
+        $currentStage = $db->setQuery($query)->loadResult();
+
+        // No association at all means the item has been removed form the workflow entirely,
+        // which is just as good a reason not to fire as having moved stage.
+        if ($currentStage === null) {
+            return true;
+        }
+
+        return (int) $currentStage !== (int) $rule->from_stage_id;
+    }
+
+    /**
      * Flags an item as needing manual intervention after its transition failed.
      *
      * Clearing requires_intervention later makes the item eligible again on the next run,
@@ -781,7 +844,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         array &$failures,
         array &$failureReasons,
         string $note,
-        int $exitCode = 1,
+        int $exitCode = self::EXIT_REFUSED,
         bool $blockRetries = false
     ): void {
         $reason = mb_substr(
@@ -829,6 +892,29 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $runAsUserId  = $rule->run_as_user_id;
         $originalUser = $app->getIdentity();
 
+        // Asked first, before anything else is checked or swapped. A candidate is read at the
+        // start of the run and acted on later, so somebody can move the item by hand in between.
+        // When that has happened this rule was never going to fire whatever else is wrong with
+        // it, and reporting a Run As fault against an item that has already left the stage would
+        // be noise about a stage it is no longer in.
+        //
+        // executeTransition() would refuse too, but only by returning false, which it also
+        // returns for a permission failure or a plugin veto. Asking the association directly is
+        // what makes a benign race distinguishable from a real fault.
+        if ($this->hasLeftItsStage($rule)) {
+            // Logged and nothing else: no email, no stored reason, no intervention flag. Nothing
+            // went wrong, the item simply moved on and will be reconsidered next run under
+            // whichever stage it is in now. The log entry exists so the run can still be
+            // accounted for.
+            $this->logAutomationRun(
+                $rule,
+                self::EXIT_NO_LONGER_APPLICABLE,
+                'The item left this stage before the transition ran, so it no longer applies.'
+            );
+
+            return;
+        }
+
         // A rule acts as the user it names, and only as that user. Both ways of not having one
         // are refusals rather than fallbacks.
         // run_as_user_id is 0 whenever nobody filled the field in. Saving a rule like that is
@@ -870,24 +956,22 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
             $workflow = new Workflow($rule->extension);
 
-            // executeTransition() re-checks the item's current stage association, so a candidate
-            // made stale by a manual transition earlier in this run returns false instead of
-            // firing. Note that false is currently indistinguishable from a genuine failure, so
-            // such a race is reported as one
+            // False here now means a genuine refusal, because the stale case was ruled out
+            // above before the identity was even swapped.
             if ($workflow->executeTransition([$rule->item_id], $transitionId, 'automation')) {
-                $this->logAutomationRun($rule, 0);
+                $this->logAutomationRun($rule, self::EXIT_OK);
             } else {
                 $this->recordRuleFailure(
                     $rule,
                     $failures,
                     $failureReasons,
                     'Transition could not be executed; permission denied, invalid transition, or stopped by a plugin.',
-                    1,
+                    self::EXIT_REFUSED,
                     true
                 );
             }
         } catch (\Throwable $error) {
-            $this->recordRuleFailure($rule, $failures, $failureReasons, $error->getMessage(), 3, true);
+            $this->recordRuleFailure($rule, $failures, $failureReasons, $error->getMessage(), self::EXIT_EXCEPTION, true);
         } finally {
             // Always restore the scheduler's original identity.
             $app->loadIdentity($originalUser);

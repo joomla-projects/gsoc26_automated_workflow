@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS `#__workflow_automation_log` (
     `to_stage_id` int NOT NULL DEFAULT 0,
     `run_as_user_id` int NOT NULL DEFAULT 0,
     `trigger_type` varchar(20) NOT NULL DEFAULT 'rule',
-    `exit_code` tinyint NOT NULL DEFAULT 0 COMMENT '0 ok, 1 permission denied, 2 invalid transition, 3 exception',
+    `exit_code` tinyint NOT NULL DEFAULT 0 COMMENT '0 ok, 1 permission denied, 2 invalid transition, 3 exception, 4 no longer applicable',
     `note` varchar(500) DEFAULT NULL,
     `executed_at` datetime NOT NULL,
     PRIMARY KEY (`id`),

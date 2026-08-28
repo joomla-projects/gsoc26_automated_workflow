@@ -112,7 +112,11 @@ class LogsModel extends ListModel
         if ($result === 'ok') {
             $automationLogQuery->where($db->quoteName('l.exit_code') . ' = 0');
         } elseif ($result === 'failed') {
-            $automationLogQuery->where($db->quoteName('l.exit_code') . ' <> 0');
+            // Skipped runs are not failures, so "Failed" must not sweep them in: an
+            // administrator filtering for problem is asking what needs their attention.
+            $automationLogQuery->where($db->quoteName('l.exit_code') . ' NOT IN (0, 4)');
+        } elseif ($result === 'skipped') {
+            $automationLogQuery->where($db->quoteName('l.exit_code') . ' = 4');
         }
 
         $search = $this->getState('filter.search');

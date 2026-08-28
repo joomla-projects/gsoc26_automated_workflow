@@ -1387,4 +1387,4 @@ CREATE INDEX "#__workflow_automation_log_idx_exit_code" ON "#__workflow_automati
 
 COMMENT ON COLUMN "#__workflow_automation_log"."rule_id" IS 'Foreign Key to #__workflow_automation_rules.id';
 
-COMMENT ON COLUMN "#__workflow_automation_log"."exit_code" IS '0 ok, 1 permission denied, 2 invalid transition, 3 exception';
+COMMENT ON COLUMN "#__workflow_automation_log"."exit_code" IS '0 ok, 1 permission denied, 2 invalid transition, 3 exception, 4 no longer applicable';
