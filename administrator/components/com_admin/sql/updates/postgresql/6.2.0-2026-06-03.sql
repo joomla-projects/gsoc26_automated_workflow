@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS "#__workflow_automation_log" (
     "trigger_type" varchar(20) DEFAULT 'rule' NOT NULL,
     "exit_code" smallint DEFAULT 0 NOT NULL,
     "note" varchar(500),
-    "executed_at" timestamp without time zone NOT NULL, 
+    "executed_at" timestamp without time zone NOT NULL,
     PRIMARY KEY ("id")
 );
 
