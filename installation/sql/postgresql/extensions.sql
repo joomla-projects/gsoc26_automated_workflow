@@ -900,7 +900,9 @@ INSERT INTO "#__scheduler_tasks" ("id", "asset_id", "title", "type", "execution_
 (3, 99, 'Update Notification', 'update.notification', CONCAT('{"rule-type":"interval-hours","interval-hours":"24","exec-day":"01","exec-time":"', TO_CHAR(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'HH24:00'), '"}'), '{"type":"interval","exp":"PT24H"}', 1, NULL, TO_TIMESTAMP(TO_CHAR(CURRENT_TIMESTAMP AT TIME ZONE 'UTC' + INTERVAL '24 hours', 'YYYY-MM-DD HH24:00:00'), 'YYYY-MM-DD HH24:MI:SS'), NULL, '{"individual_log":false,"log_file":"","notifications":{"success_mail":"0","failure_mail":"1","fatal_failure_mail":"1","orphan_mail":"1"},"email":"","language_override":""}', CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 42),
 (4, 100, 'Workflow Automation', 'workflow.automation', CONCAT('{"rule-type":"interval-minutes","interval-minutes":"15","exec-day":"', TO_CHAR(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'FMDD'), '","exec-time":"', TO_CHAR(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'HH24:00'), '"}'), '{"type":"interval","exp":"PT15M"}', 1, NULL, TO_CHAR(CURRENT_TIMESTAMP AT TIME ZONE 'UTC' + INTERVAL '15 minutes', 'YYYY-MM-DD HH24:MI:00')::timestamp, NULL, '{"individual_log":false,"log_file":"","notifications":{"success_mail":"0","failure_mail":"1","fatal_failure_mail":"1","orphan_mail":"1"}}', CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 42);
 
-SELECT setval ( '#__scheduler_tasks_id_seq', 5, false );-- --------------------------------------------------------
+SELECT setval ( '#__scheduler_tasks_id_seq', 5, false );
+
+-- --------------------------------------------------------
 
 --
 -- Table structure for table "#__scheduler_logs"

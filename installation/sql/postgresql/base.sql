@@ -125,8 +125,7 @@ INSERT INTO "#__assets" ("id", "parent_id", "lft", "rgt", "level", "name", "titl
 (99, 90, 170, 171, 2, 'com_scheduler.task.3', 'Update Notification', '{}'),
 (100, 90, 172, 173, 2, 'com_scheduler.task.4', 'Workflow Automation', '{}');
 
-SELECT setval('#__assets_id_seq', 100, false);
-
+SELECT setval ( '#__assets_id_seq', 101, false );
 --
 -- Table structure for table `#__extensions`
 --
