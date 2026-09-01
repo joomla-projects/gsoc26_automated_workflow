@@ -56,6 +56,19 @@
       root.addEventListener("click", (event) => this.onClick(event));
       root.addEventListener("change", (event) => this.onChange(event));
 
+      // A typed value otherwise only commits when the box loses focus, so a rule saved from
+      // the keyboard would store the value as it was before the last edit. Only inputs need
+      // this: a select already commits on change, and the multiselect is wrapped in a
+      // fancy-select that fires its own events.
+      root.addEventListener("input", (event) => {
+        if (
+          event.target.tagName === "INPUT" &&
+          event.target.getAttribute("data-role") === "value"
+        ) {
+          this.onChange(event);
+        }
+      });
+
       this.render();
     }
 
@@ -527,12 +540,15 @@
     renderValue(node) {
       const type = (this.config.valueTypes || {})[node.field];
 
-      if (type === "date") {
+      // Typed values: the check supplies no list to pick from, so the value is
+      // whatever the person writes. A number gets the numeric input so the
+      // browser offers the right keyboard and rejects letters.
+      if (type === "date" || type === "text" || type === "number") {
         return el("input", {
-          type: "date",
+          type: type,
           class: "form-control",
           "data-role": "value",
-          value: node.value || "",
+          value: node.value === null || node.value === undefined ? "" : String(node.value),
         });
       }
 

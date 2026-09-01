@@ -4,90 +4,97 @@
  * @package     Joomla.Administrator
  * @subpackage  com_workflow
  *
- * @copyright (C) 2026 Open Source Matters, Inc. <https://www.joomla.org>
- * @license GNU General Public License version 2 or later; see LICENSE.txt
+ * @copyright   (C) 2026 Open Source Matters, Inc. <https://www.joomla.org>
+ * @license     GNU General Public License version 2 or later; see LICENSE.txt
  */
 
 namespace Joomla\Component\Workflow\Administrator\Automation;
 
+use Joomla\CMS\Event\Workflow\WorkflowResolveFieldsEvent;
 use Joomla\CMS\Factory;
+use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\Database\DatabaseInterface;
-use Joomla\Database\ParameterType;
+use Joomla\Event\DispatcherInterface;
 
 // phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;
 // phpcs:enable PSR1.Files.SideEffects
 
 /**
- * Resolves condition field values for a content item.
+ * Resolves check values for the items a rule is being evaluated against.
  *
- * The ConditionEvaluator is data-source agnostic; this class is the com_content-specific
- * half that knows how to look up an article's tags, category, and author groups. A later
- * version would replace this with an event so other extensions can supply field values.
+ * Joomla's own checks are answered by BuiltinConditionFields directly; anything else is put to
+ * the workflow plugins through an event. This class does not know what any check means. Its job
+ * is knowing how to ask, how to ask about many items at once, and how not to ask twice.
  *
- * @since __DEPLOY_VERSION__
+ * Batching is lazy rather than eager: a caller announces which items it is about to evaluate,
+ * and the first time any check is needed it is resolved for that whole set in one go. That
+ * keeps a run at one round trip per check, without the caller having to work out in advance
+ * which checks a stored rule happens to use.
+ *
+ * Everything is kept per extension, because an item id is only unique within its own: article 5
+ * and contact 5 are different items that must not share an answer.
+ *
+ * @since  __DEPLOY_VERSION__
  */
 final class ItemFieldResolver
 {
     /**
-     * @var DatabaseInterface
+     * The checks Joomla ships with. Held for the resolver's lifetime so its content type
+     * lookups are cached across every check a run evaluates.
+     *
+     * @var BuiltInConditionFields
      * @since __DEPLOY_VERSION__
      */
-    private DatabaseInterface $database;
+    private BuiltinConditionFields $builtinFields;
 
     /**
-     * @param DatabaseInterface $database The database driver.
+     * The items a caller announced through preload(), grouped by extension, so a check can be
+     * resolved for a whole set at once the first time it is asked for.
      *
-     * @since __DEPLOY_VERSION__
-     */
-    public function __construct(DatabaseInterface $database)
-    {
-        $this->database = $database;
-    }
-
-    /**
-     * Preloaded field values, keyed by extension then item id. Populated by preload() so a run
-     * of many items costs a fixed number of queries instead of one lookup per item.
-     *
-     * The extension is part of the key because an item id is only unique within its own
-     * extension.
-     *
-     * @var    array<string, array<int, int[]>>
+     * @var    array<string, int[]>
      * @since  __DEPLOY_VERSION__
      */
-    private array $preloadedTags = [];
+    private array $batchItemIds = [];
 
     /**
-     * @var    array<string, array<int, integer>>
+     * Resolved values, keyed by extension, check and moment, then by item id. The moment is part
+     * of the key because a check that describes the clock gives a different answer at a different
+     * time, which is how the upcoming-transitions views ask about future moments.
+     *
+     * @var    array<string, array<int, mixed>>
      * @since  __DEPLOY_VERSION__
      */
-    private array $preloadedCategories = [];
+    private array $resolved = [];
 
     /**
-     * @var    array<string, array<int, int[]>>
-     * @since  __DEPLOY_VERSION__
-     */
-    private array $preloadedAuthorGroups = [];
-
-    /**
-     * Which item ids preload() has covered, per extension. Needed to tell "preloaded, and the
-     * answer is empty" apart from "never preloaded, go and ask the database".
+     * Which items have already been asked about, keyed the same way as $resolved. A cached key
+     * does not mean every item is covered: a batch resolved earlier will not include an item
+     * that only came into play afterwards.
      *
      * @var    array<string, array<int, boolean>>
      * @since  __DEPLOY_VERSION__
      */
-    private array $preloadedItems = [];
+    private array $asked = [];
 
     /**
-     * Loads every item field for a set of items up front, in a fixed number of queries.
+     * @param   DatabaseInterface  $database  The database driver.
      *
-     * Without this, evaluating a filter across N items issues N lookups, because each item
-     * asks the database for its own tags. Callers that process a batch should preload it
-     * first; callers that handle a single item can skip this and the per-item queries below
-     * still answer correctly.
+     * @since   __DEPLOY_VERSION__
+     */
+    public function __construct(DatabaseInterface $database)
+    {
+        $this->builtinFields = new BuiltinConditionFields($database);
+    }
+
+    /**
+     * Announces the items about to be evaluated, so checks can be resolved for the whole set.
      *
-     * @param   int[]   $itemIds    The content item ids about to be evaluated.
-     * @param   string  $extension  The workflow extension, e.g. com_content.article.
+     * Nothing is fetched here. The work happens the first time a check is actually needed,
+     * which avoids loading checks that the stored rules never mention.
+     *
+     * @param   int[]   $itemIds    The content item ids.
+     * @param   string  $extension  The workflow extension those ids belong to.
      *
      * @return  void
      *
@@ -95,249 +102,164 @@ final class ItemFieldResolver
      */
     public function preload(array $itemIds, string $extension): void
     {
-        $itemIds = array_values(array_unique(array_map('intval', $itemIds)));
-
-        if ($itemIds === []) {
-            return;
-        }
-
-        $db = $this->database;
-
-        // The tag map's primary key starts with type_id and nothing indexes type_alias, so
-        // filtering by the alias scans the whole table. Resolving the alias to its id in a
-        // subquery lets the primary key do the work, and the subquery uses the alias index.
-
-        $tagTypeSubquery = '(SELECT ' . $db->quoteName('ct.type_id')
-            . ' FROM ' . $db->quoteName('#__content_types', 'ct')
-            . ' WHERE ' . $db->quoteName('ct.type_alias') . ' = :extension)';
-
-        // Tags for the whole batch in one query.
-        $tagQuery = $db->getQuery(true)
-            ->select($db->quoteName(['content_item_id', 'tag_id']))
-            ->from($db->quoteName('#__contentitem_tag_map'))
-            ->where($db->quoteName('type_id') . ' = ' . $tagTypeSubquery)
-            ->whereIn($db->quoteName('content_item_id'), $itemIds)
-            ->bind(':extension', $extension);
-
-        foreach ($db->setQuery($tagQuery)->loadObjectList() ?: [] as $tagRow) {
-            $this->preloadedTags[$extension][(int) $tagRow->content_item_id][] = (int) $tagRow->tag_id;
-        }
-
-        // Category and author come from the same table, so one query answers both.
-        $itemIdsByAuthor = [];
-
-        if ($extension === 'com_content.article') {
-            $contentQuery = $db->getQuery(true)
-                ->select($db->quoteName(['id', 'catid', 'created_by']))
-                ->from($db->quoteName('#__content'))
-                ->whereIn($db->quoteName('id'), $itemIds);
-
-            foreach ($db->setQuery($contentQuery)->loadObjectList() ?: [] as $contentRow) {
-                $this->preloadedCategories[$extension][(int) $contentRow->id] = (int) $contentRow->catid;
-
-                if ((int) $contentRow->created_by > 0) {
-                    $itemIdsByAuthor[(int) $contentRow->created_by][] = (int) $contentRow->id;
-                }
-            }
-        }
-
-        // Group memberships for every author in the batch, then fanned back out to their items.
-        if ($itemIdsByAuthor !== []) {
-            $groupQuery = $db->getQuery(true)
-                ->select($db->quoteName(['user_id', 'group_id']))
-                ->from($db->quoteName('#__user_usergroup_map'))
-                ->whereIn($db->quoteName('user_id'), array_keys($itemIdsByAuthor));
-
-            $groupsByAuthor = [];
-
-            foreach ($db->setQuery($groupQuery)->loadObjectList() ?: [] as $groupRow) {
-                $groupsByAuthor[(int) $groupRow->user_id][] = (int) $groupRow->group_id;
-            }
-
-            foreach ($itemIdsByAuthor as $authorId => $authoredItemIds) {
-                foreach ($authoredItemIds as $authoredItemId) {
-                    $this->preloadedAuthorGroups[$extension][$authoredItemId] = $groupsByAuthor[$authorId] ?? [];
-                }
-            }
-        }
-
-        // Everything asked for is marked as preloaded, including ids that turned out to have no
-        // tags, no category or no author. That is the point: a miss recorded here is the
-        // difference between "looked and found nothing" and "never looked", and only the second
-        // should fall back to a per-item query.
-        $this->preloadedItems[$extension] = array_fill_keys($itemIds, true)
-            + ($this->preloadedItems[$extension] ?? []);
+        $this->batchItemIds[$extension] = array_values(array_unique(
+            array_merge($this->batchItemIds[$extension] ?? [], array_map('intval', $itemIds))
+        ));
     }
 
     /**
      * Builds a resolver callback bound to one item, for use by the ConditionEvaluator.
      *
-     * Looked-up values are cached per field so a rule that references the same field in
-     * both its filter and its condition only hits the database once.
+     * @param   integer         $itemId          The content item id.
+     * @param   string          $extension       The workflow extension, e.g. com_content.article.
+     * @param   \DateTime|null  $evaluationTime  The moment clock-based checks should describe,
+     *                                           or null for now.
      *
-     * @param integer $itemId The content item id.
-     * @param string $extension The workflow extension, e.g. com_content.article.
-     * @param \DateTime|null $evaluationTime The moment the moment-fields (day of week, date)
-     * should describe. Defaults to now. Passing a future moment lets a caller ask "would this condition hold
-     * then?", which is how the upcoming-transitions views work out when a gated rule will actually fire.
+     * @return  callable  fn(string $fieldName): mixed
      *
-     * @return callable fn(string $fieldName): mixed
-     *
-     * @since __DEPLOY_VERSION__
+     * @since   __DEPLOY_VERSION__
      */
-
     public function forItem(int $itemId, string $extension, ?\DateTime $evaluationTime = null): callable
     {
-        $loadedValues = [];
-
-        return function (string $fieldName) use ($itemId, $extension, $evaluationTime, &$loadedValues) {
-            if (!\array_key_exists($fieldName, $loadedValues)) {
-                $loadedValues[$fieldName] = $this->resolveField($fieldName, $itemId, $extension, $evaluationTime);
-            }
-
-            return $loadedValues[$fieldName];
+        return function (string $fieldName) use ($itemId, $extension, $evaluationTime) {
+            return $this->valueFor($fieldName, $itemId, $extension, $evaluationTime);
         };
     }
 
     /**
-     * Resolves a single field to the item's value at the evaluation time.
+     * One item's value for one check, resolving the whole batch on first use.
      *
-     * @param string $fieldName The field to resolve.
-     * @param integer $itemId The content item id.
+     * @param   string          $fieldName       The check.
+     * @param   integer         $itemId          The item.
+     * @param   string          $extension       The workflow extension.
+     * @param   \DateTime|null  $evaluationTime  The moment to describe, or null for now.
+     *
+     * @return  mixed
+     *
+     * @throws  ConditionEvaluationException  When nothing provides the check, or whatever does
+     * had no value for this item.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function valueFor(string $fieldName, int $itemId, string $extension, ?\DateTime $evaluationTime)
+    {
+        // The extension is part of the key because an item id is only unique within it. Without
+        // it, article 5 and contact 5 would share an answer.
+        $cacheKey = $extension . '|' . $fieldName . '|'
+            . ($evaluationTime ? $evaluationTime->getTimestamp() : 'now');
+
+        $announced = $this->batchItemIds[$extension] ?? [];
+
+        if (!isset($this->asked[$cacheKey][$itemId])) {
+            // Resolve for the announced batch when this item belongs to it, otherwise just for
+            // this one item, so single-item callers still work without preloading.
+            $itemIds = \in_array($itemId, $announced, true) ? $announced : [$itemId];
+
+            // Merge rather than replace: an earlier call may have resolved other items under
+            // this same key, and those answers are still good.
+            $this->resolved[$cacheKey] = ($this->resolved[$cacheKey] ?? [])
+                + $this->resolveBatch($fieldName, $itemIds, $extension, $evaluationTime);
+
+            foreach ($itemIds as $askedItemId) {
+                $this->asked[$cacheKey][$askedItemId] = true;
+            }
+        }
+
+        // The check exists but whatever provides it had no value for this item, which is not the
+        // same as an empty one. Comparing against a missing value would be a guess, so the item
+        // is reported and skipped instead. A remote source that timed out lands here.
+        if (!\array_key_exists($itemId, $this->resolved[$cacheKey])) {
+            throw new ConditionEvaluationException(\sprintf(
+                'Nothing could resolve a value for the "%s" check on item %s.%d.',
+                $fieldName,
+                $extension,
+                $itemId
+            ));
+        }
+
+        return $this->resolved[$cacheKey][$itemId];
+    }
+
+    /**
+     * Resolves one check for a set of items, from Joomla's own checks or from a plugin.
+     *
+     * Built-in checks are answered directly, so a run that only uses them dispatches
+     * nothing. The event is a fallback for names com_workflow does not recognize, which also means
+     * a plugin cannot shadow a built-in and change what a saved rule means.
+     *
+     * @param string $fieldName The check.
+     * @param int[] $itemIds The items.
      * @param string $extension The workflow extension.
-     * @param \DateTime|null $evaluationTime The moment to describe, or null for now.
+     * @param \DateTime|null $evaluationTime The moment to describe, or null for now
      *
-     * @return int|string|array|null
+     * @return array<int, mixed>
+     *
+     * @throws ConditionEvaluationException When nothing provides the check.
      *
      * @since __DEPLOY_VERSION__
      */
-    private function resolveField(
+    private function resolveBatch(
         string $fieldName,
-        int $itemId,
+        array $itemIds,
         string $extension,
-        ?\DateTime $evaluationTime = null
-    ): int|string|array|null {
-        switch ($fieldName) {
-            case 'day_of_week':
-                return (int) ($evaluationTime ? $evaluationTime->format('w') : Factory::getDate('now')->format('w'));  // 0 = Sunday
+        ?\DateTime $evaluationTime
+    ): array {
+        $builtinValues = $this->builtinFields->resolve($fieldName, $itemIds, $extension, $evaluationTime);
 
-            case 'now':
-            case 'date':
-                return $evaluationTime ? $evaluationTime->format('Y-m-d H:i:s') : Factory::getDate('now')->toSql();
-
-                // Item fields below are com_content-specific for now; a later version will
-                // expose them through an event so other extensions can resolve their own fields.
-            case 'tag':
-                return $this->loadTagIds($itemId, $extension);
-
-            case 'category':
-                return $this->loadCategoryId($itemId, $extension);
-
-            case 'author_group':
-                return $this->loadAuthorGroupIds($itemId, $extension);
-
-            default:
-                throw new ConditionEvaluationException('Unknown condition field "' . $fieldName . '".');
+        // Null means the name is not one of Joomla's own, so it is worth asking the plugins.
+        // An empty array means it is ours and we had no values, which is a different answer.
+        if ($builtinValues !== null) {
+            return $builtinValues;
         }
+
+        return $this->askPlugins($fieldName, $itemIds, $extension, $evaluationTime);
     }
 
     /**
-     * Loads the tag ids assigned to the item.
+     * Asks the workflow plugins to resolve one check for a set of items.
      *
-     * @param integer $itemId The content id.
-     * @param string $extension The workflow extension (used as the tag map type alias).
+     * @param   string          $fieldName       The check.
+     * @param   int[]           $itemIds         The items.
+     * @param   string          $extension       The workflow extension.
+     * @param   \DateTime|null  $evaluationTime  The moment to describe, or null for now.
      *
-     * @return integer[]
+     * @return  array<int, mixed>
      *
-     * @since __DEPLOY_VERSION__
+     * @throws  ConditionEvaluationException  When no plugin claims the check.
+     *
+     * @since   __DEPLOY_VERSION__
      */
-    private function loadTagIds(int $itemId, string $extension): array
+    private function askPlugins(string $fieldName, array $itemIds, string $extension, ?\DateTime $evaluationTime): array
     {
-        if (isset($this->preloadedItems[$extension][$itemId])) {
-            return $this->preloadedTags[$extension][$itemId] ?? [];
+        PluginHelper::importPlugin('workflow');
+
+        $event = new WorkflowResolveFieldsEvent(
+            'onWorkflowResolveConditionFields',
+            [
+                'field'          => $fieldName,
+                'itemIds'        => $itemIds,
+                'extension'      => $extension,
+                'evaluationTime' => $evaluationTime,
+            ]
+        );
+
+        // From the container, not $app->getDispatcher(): that lives on EventAwareInterface,
+        // which is part of the 3.x compatibility layer and goes away in 7.0.
+        Factory::getContainer()->get(DispatcherInterface::class)->dispatch($event->getName(), $event);
+
+        // Nobody claimed the check at all, so the rule refers to something this site no longer
+        // has. Kept separate from a provider that answered for no items, because that is a
+        // working extension having a bad day rather than a missing one, and sending someone to
+        // the plugin manager to look for a timeout wastes their afternoon.
+        if (!$event->isAnswered()) {
+            throw new ConditionEvaluationException(\sprintf(
+                'No installed extension provides the "%s" check that this rule uses on %s. '
+                    . 'The extension that supplied it has probably been disabled or uninstalled.',
+                $fieldName,
+                $extension
+            ));
         }
 
-        $tagTypeSubquery = '(SELECT ' . $this->database->quoteName('ct.type_id')
-            . ' FROM ' . $this->database->quoteName('#__content_types', 'ct')
-            . ' WHERE ' . $this->database->quoteName('ct.type_alias') . ' = :extension)';
-
-        $loadTagsQuery = $this->database->getQuery(true)
-            ->select($this->database->quoteName('tag_id'))
-            ->from($this->database->quoteName('#__contentitem_tag_map'))
-            ->where($this->database->quoteName('type_id') . ' = ' . $tagTypeSubquery)
-            ->where($this->database->quoteName('content_item_id') . ' = :itemId')
-            ->bind(':extension', $extension)
-            ->bind(':itemId', $itemId, ParameterType::INTEGER);
-
-        return array_map('intval', $this->database->setQuery($loadTagsQuery)->loadColumn() ?: []);
-    }
-
-    /**
-     * Loads the item's category id. Only meaningful for com_content articles.
-     *
-     * @param integer $itemId The content item id.
-     * @param string $extension The workflow extension.
-     *
-     * @return integer
-     *
-     * @since __DEPLOY_VERSION__
-     */
-    private function loadCategoryId(int $itemId, string $extension): int
-    {
-        if ($extension !== 'com_content.article') {
-            return 0;
-        }
-
-        if (isset($this->preloadedItems[$extension][$itemId])) {
-            return $this->preloadedCategories[$extension][$itemId] ?? 0;
-        }
-
-        $loadCategoryQuery = $this->database->getQuery(true)
-            ->select($this->database->quoteName('catid'))
-            ->from($this->database->quoteName('#__content'))
-            ->where($this->database->quoteName('id') . ' = :itemId')
-            ->bind(':itemId', $itemId, ParameterType::INTEGER);
-
-        return (int) $this->database->setQuery($loadCategoryQuery)->loadResult();
-    }
-
-    /**
-     * Loads the user group ids of the item's author
-     *
-     * @param integer $itemId The content item id.
-     * @param string $extension The workflow extension.
-     *
-     * @return integer[]
-     *
-     * @since __DEPLOY_VERSION__
-     */
-    private function loadAuthorGroupIds(int $itemId, string $extension): array
-    {
-        if ($extension !== 'com_content.article') {
-            return [];
-        }
-
-        if (isset($this->preloadedItems[$extension][$itemId])) {
-            return $this->preloadedAuthorGroups[$extension][$itemId] ?? [];
-        }
-
-        $authorQuery = $this->database->getQuery(true)
-            ->select($this->database->quoteName('created_by'))
-            ->from($this->database->quoteName('#__content'))
-            ->where($this->database->quoteName('id') . ' = :itemId')
-            ->bind(':itemId', $itemId, ParameterType::INTEGER);
-        $authorId = (int) $this->database->setQuery($authorQuery)->loadResult();
-
-        if ($authorId === 0) {
-            return [];
-        }
-
-        $groupQuery = $this->database->getQuery(true)
-            ->select($this->database->quoteName('group_id'))
-            ->from($this->database->quoteName('#__user_usergroup_map'))
-            ->where($this->database->quoteName('user_id') . ' = :authorId')
-            ->bind(':authorId', $authorId, ParameterType::INTEGER);
-
-        return array_map('intval', $this->database->setQuery($groupQuery)->loadColumn() ?: []);
+        return $event->getValues();
     }
 }
