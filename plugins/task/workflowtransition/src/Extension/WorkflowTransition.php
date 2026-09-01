@@ -16,6 +16,7 @@ use Joomla\CMS\Language\Text;
 use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\CMS\Uri\Uri;
 use Joomla\CMS\User\UserFactoryInterface;
+use Joomla\CMS\Workflow\TransitionStatus;
 use Joomla\CMS\Workflow\Workflow;
 use Joomla\Component\Scheduler\Administrator\Event\ExecuteTaskEvent;
 use Joomla\Component\Scheduler\Administrator\Task\Status as TaskStatus;
@@ -159,14 +160,11 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * Assumptions about the operating environment:
      * - The scheduler holds a per-task lock and will not run this task concurrently with itself,
      *   so no per-rule or per-item locking is done here.
-     * - Candidates are read once at the start of the run, so an item may be moved by a manual
-     *   transition while the run is still in progress. Workflow::executeTransition() re-checks
-     *   the item's current stage association before acting, so a stale candidate cannot fire a
-     *   transition that no longer applies. See fireRule() for how that outcome is reported.
+     *  - Candidates are read once at the start of the run, so an item may be moved by a manual
+     *   transition while the run is still in progress. Workflow::attemptTransition() re-checks
+     *   the item's current stage association before acting and reports STAGE_MISMATCH, so a
+     *   stale candidate cannot fire a transition that no longer applies.
      *
-     * $event cannot be removed. standardRoutineHandler() reflects on the method and requires
-     * exactly one required parameter typed ExecuteTaskEvent with an int return; drop it and
-     * the plugin logs "Incorrect routine method signature" and refuses to run
      *
      * @param   ExecuteTaskEvent  $event  The scheduler event.
      *
@@ -316,17 +314,12 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 $db->quoteName('war.cron_expression'),
                 $db->quoteName('war.item_filter'),
                 $db->quoteName('war.fire_condition'),
-                // The transition's ordering, not the rule's. A transition carries at most one
-                // rule, so rules only ever compete across transitions, and transition ordering
-                // is what an administrator can actually set by dragging in the Transitions list.
                 $db->quoteName('wt.ordering'),
                 $db->quoteName('wis.item_id'),
                 $db->quoteName('wis.extension'),
                 $db->quoteName('wis.id', 'item_state_id'),
                 $db->quoteName('wis.entered_at'),
                 $db->quoteName('war.run_as_user_id'),
-                // Read back so the run can tell a fault it has already reported
-                // from a new one.
                 $db->quoteName('wis.last_failure_reason'),
             ])
             ->from($db->quoteName('#__workflow_item_state', 'wis'))
@@ -570,42 +563,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     }
 
     /**
-     * Whether the item has left the stage, its candidate was fetched from.
-     *
-     * Candidates are read once at the start of a run and acted on one by one, so
-     * an item can be moved by hand in between. executeTransition() spots this for
-     * itself and refuses, but a refusal carries no reason, so the run cannot tell a stale
-     * candidate from a genuine failure. Asking first is what makes them distinguishable.
-     *
-     * @param DueAutomation $rule The winning candidate.
-     *
-     * @return boolean True when the item is no longer in the stage the candidate came from.
-     *
-     * @since __DEPLOY_VERSION__
-     */
-    private function hasLeftItsStage(DueAutomation $rule): bool
-    {
-        $db    = $this->getDatabase();
-        $query = $db->getQuery(true)
-            ->select($db->quoteName('stage_id'))
-            ->from($db->quoteName('#__workflow_associations'))
-            ->where($db->quoteName('item_id') . ' = :itemId')
-            ->where($db->quoteName('extension') . ' = :extension')
-            ->bind(':itemId', $rule->item_id, ParameterType::INTEGER)
-            ->bind(':extension', $rule->extension, ParameterType::STRING);
-
-        $currentStage = $db->setQuery($query)->loadResult();
-
-        // No association at all means the item has been removed form the workflow entirely,
-        // which is just as good a reason not to fire as having moved stage.
-        if ($currentStage === null) {
-            return true;
-        }
-
-        return (int) $currentStage !== (int) $rule->from_stage_id;
-    }
-
-    /**
      * Flags an item as needing manual intervention after its transition failed.
      *
      * Clearing requires_intervention later makes the item eligible again on the next run,
@@ -757,9 +714,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 continue;
             }
 
-            // Due, but does the rule's filter scope in this item at all? A rule whose
-            // stored expression cannot be evaluated is reported as a failure and
-            // skipped, never silently treated as passing or failing.
             try {
                 if (!$conditionEvaluator->evaluate($candidate->item_filter, $fieldResolver)) {
                     continue;
@@ -770,11 +724,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                     continue;
                 }
             } catch (ConditionEvaluationException $invalidCondition) {
-                // Only the first unreadable rule on this item is kept. A second one would
-                // overwrite the first, and an administrator fixes them one at a time anyway:
-                // repairing this rule lets the next run surface whatever is behind it.
-                // The item id is not part of the text because the text is stored on the item's
-                // own row; the caller puts it back when building the notification.
                 $evaluationFailure ??= mb_substr(
                     'Rule ' . $candidate->rule_id . ' could not be evaluated: ' . $invalidCondition->getMessage(),
                     0,
@@ -787,18 +736,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         }
 
         if (!empty($eligibleRules)) {
-            // Soonest deadline wins, matching UpcomingTransitionsCalculator. Sorting by ordering
-            // alone is a leftover from when a single stored next_transition_at answered "is it
-            // due": every row the query returned was already due, so ordering was the only thing
-            // left to choose between them. Deadlines are computed per rule now, so "which fires
-            // next" has a real answer, and using anything else lets the preview advertise one
-            // transition while the scheduler fires another.
-            //
-            // ordering is still the tiebreak, which is the job it can actually do: two rules on
-            // the same stage with the same delay come due at the same instant, and an
-            // administrator ranking them is the only way to separate those. rule_id last, so a
-            // tie is broken the same way on every run rather than by whatever order the database
-            // happened to return.
             usort(
                 $eligibleRules,
                 static fn (array $a, array $b): int => [$a['deadline'], (int) $a['rule']->ordering, (int) $a['rule']->rule_id]
@@ -819,13 +756,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * so it reaches an administrator, the automation log gains a row so there is a history, and
      * the item's own state row gains the reason so the screens can explain the delay.
      *
-     * Whether the item is also taken out of the scheduler is the one real difference between
-     * failure kinds, so it is a parameter. A transition that failed to execute is blocked,
-     * because retrying it will fail the same way until somebody looks at it. A rule that names
-     * no usable user is not blocked, because that is a fault in the rule rather than in the
-     * item: correcting one field fixes every item at once, and the reason clears itself on the
-     * next clean run. Blocking would leave an administrator clearing a flag item by item after
-     * a one-line fix.
      *
      * @param   DueAutomation  $rule            The rule that could not fire.
      * @param   string[]       $failures        Collected failure messages (by reference).
@@ -855,10 +785,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
         $failureReasons[$rule->item_state_id] = $reason;
 
-        // Reported, and written to the automation log, only when the reason differs from the
-        // one already stored. A rule that stays broken fails again on every run, and a log row
-        // plus an email every minute would bury the history the log exists to preserve. A
-        // failure that blocks retries can only happen once, so this changes nothing for those.
         if ($reason !== $rule->last_failure_reason) {
             $failures[] = $this->notificationLine((int) $rule->item_id, $reason, $this->itemEditLink($rule));
 
@@ -892,41 +818,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $runAsUserId  = $rule->run_as_user_id;
         $originalUser = $app->getIdentity();
 
-        // Asked first, before anything else is checked or swapped. A candidate is read at the
-        // start of the run and acted on later, so somebody can move the item by hand in between.
-        // When that has happened this rule was never going to fire whatever else is wrong with
-        // it, and reporting a Run As fault against an item that has already left the stage would
-        // be noise about a stage it is no longer in.
-        //
-        // executeTransition() would refuse too, but only by returning false, which it also
-        // returns for a permission failure or a plugin veto. Asking the association directly is
-        // what makes a benign race distinguishable from a real fault.
-        if ($this->hasLeftItsStage($rule)) {
-            // Logged and nothing else: no email, no stored reason, no intervention flag. Nothing
-            // went wrong, the item simply moved on and will be reconsidered next run under
-            // whichever stage it is in now. The log entry exists so the run can still be
-            // accounted for.
-            $this->logAutomationRun(
-                $rule,
-                self::EXIT_NO_LONGER_APPLICABLE,
-                'The item left this stage before the transition ran, so it no longer applies.'
-            );
-
-            return;
-        }
-
-        // A rule acts as the user it names, and only as that user. Both ways of not having one
-        // are refusals rather than fallbacks.
-        // run_as_user_id is 0 whenever nobody filled the field in. Saving a rule like that is
-        // allowed with only a warning, so this is reachable in ordinary use rather than only
-        // through tampering. A deleted user comes back from loadUserById() as an empty User
-        // with id 0 rather than as null, so the load has to be checked, not assumed.
-        //
-        // Carrying on either way executes the transition as whatever identity the scheduler is
-        // holding. From cron that is a guest and the transition merely fails confusingly. When
-        // the lazy scheduler fires from a page request it is the person who loaded that page,
-        // and the rule would act with their permissions instead of the ones an administrator
-        // chose for it. Neither is what the rule says it does.
         if ($runAsUserId <= 0) {
             $this->recordRuleFailure(
                 $rule,
@@ -955,17 +846,29 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             $app->loadIdentity($runAsUser);
 
             $workflow = new Workflow($rule->extension);
+            $outcome  = $workflow->attemptTransition([$rule->item_id], $transitionId, 'automation');
 
-            // False here now means a genuine refusal, because the stale case was ruled out
-            // above before the identity was even swapped.
-            if ($workflow->executeTransition([$rule->item_id], $transitionId, 'automation')) {
+            if ($outcome === TransitionStatus::SUCCESS) {
                 $this->logAutomationRun($rule, self::EXIT_OK);
+            } elseif ($outcome === TransitionStatus::STAGE_MISMATCH) {
+                // Reported by the same read that refused the transition, so an item moved by hand
+                // mid-run cannot be mistaken for a fault and blocked from future retries.
+                $this->logAutomationRun(
+                    $rule,
+                    self::EXIT_NO_LONGER_APPLICABLE,
+                    'The item left this stage before the transition ran, so it no longer applies.'
+                );
             } else {
                 $this->recordRuleFailure(
                     $rule,
                     $failures,
                     $failureReasons,
-                    'Transition could not be executed; permission denied, invalid transition, or stopped by a plugin.',
+                    match ($outcome) {
+                        TransitionStatus::INVALID_TRANSITION => 'The transition no longer exists, or the Run As user may not execute it.',
+                        TransitionStatus::STOPPED_BY_PLUGIN  => 'A plugin stopped this transition.',
+                        TransitionStatus::UPDATE_FAILED      => 'The stage change could not be saved.',
+                        default                              => 'The transition was refused.',
+                    },
                     self::EXIT_REFUSED,
                     true
                 );
@@ -973,7 +876,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         } catch (\Throwable $error) {
             $this->recordRuleFailure($rule, $failures, $failureReasons, $error->getMessage(), self::EXIT_EXCEPTION, true);
         } finally {
-            // Always restore the scheduler's original identity.
             $app->loadIdentity($originalUser);
         }
     }

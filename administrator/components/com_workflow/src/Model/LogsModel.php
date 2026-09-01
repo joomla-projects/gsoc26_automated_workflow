@@ -112,8 +112,6 @@ class LogsModel extends ListModel
         if ($result === 'ok') {
             $automationLogQuery->where($db->quoteName('l.exit_code') . ' = 0');
         } elseif ($result === 'failed') {
-            // Skipped runs are not failures, so "Failed" must not sweep them in: an
-            // administrator filtering for problem is asking what needs their attention.
             $automationLogQuery->where($db->quoteName('l.exit_code') . ' NOT IN (0, 4)');
         } elseif ($result === 'skipped') {
             $automationLogQuery->where($db->quoteName('l.exit_code') . ' = 4');
@@ -129,10 +127,6 @@ class LogsModel extends ListModel
             } else {
                 $search = '%' . str_replace(' ', '%', trim($search)) . '%';
 
-                // The title lives on the extension's own table, so it cannot be joined: one query
-                // cannot join a different table per row. A subquery works because the list is
-                // already scoped to a single extension, and it keeps the matching in the database
-                // rather than pulling every matching id into PHP first.
                 $titleLocation = $extension !== ''
                     ? (new ItemStorage($db))->titleLocation($extension)
                     : null;
@@ -164,13 +158,7 @@ class LogsModel extends ListModel
             $automationLogQuery->order($db->quoteName($db->escape($orderColumn)) . ' ' . $db->escape($orderDirection));
         }
 
-        // One scheduler run writes several rows inside the same second, so executed_at on its own
-        // leaves ties in whatever order the database happens to return, and it is free to return a
-        // different one each time. That breaks pagination rather than merely looking untidy: with
-        // LIMIT/OFFSET over an unstable sort, a row can appear on two pages while another appears
-        // on none, so an administrator paging through the log quietly loses entries. Ordering by
-        // the row id last settles every tie by insertion order, which is also the order the rows
-        // actually happened in. Guarded so it is not added twice if id ever becomes a sort option.
+        // Ties on executed_at would otherwise sort unpredictably, which breaks LIMIT/OFFSET paging.
         if ($orderColumn !== 'l.id') {
             $automationLogQuery->order($db->quoteName('l.id') . ' ' . $db->escape($orderDirection));
         }
