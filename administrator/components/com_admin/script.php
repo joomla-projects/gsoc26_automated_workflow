@@ -149,16 +149,12 @@ class JoomlaInstallerScript
             $this->collectError('Further update', $e);
         }
 
-        // Give the site a workflow automation task if it has not got one. Its own try/catch
-        // rather than joining the block above, so a failure here cannot stop the cache being
-        // cleaned: a missing task is an inconvenience, a stale cache after an update is not.
+        // Separate try/catch so a missing task cannot stop the cache being cleaned below.
         try {
             $this->createWorkflowAutomationTask();
         } catch (\Throwable $e) {
             $this->collectError('createWorkflowAutomationTask', $e);
         }
-
-        // Clean cache
 
         // Clean cache
         try {
@@ -234,10 +230,8 @@ class JoomlaInstallerScript
     {
         $db = Factory::getContainer()->get(DatabaseInterface::class);
 
-        // Matched on type, not title. The title belongs to the administrator and
-        // renamed task is still the same task. A disabled one counts as present too:
-        // switching it off is a decision, and quietly recreating it on the next update
-        // would overrule that decision.
+        // No state filter: a task the administrator disabled still counts as present, so an
+        // update does not overrule that decision by recreating it.
         $existing = $db->setQuery(
             $db->createQuery()
                 ->select($db->quoteName('id'))
@@ -249,10 +243,8 @@ class JoomlaInstallerScript
             return;
         }
 
-        // Reached through the component rather than by importing the class directly, matching
-        // how deleteUnexistingFiles() reaches com_cache below. During an update the autoloader
-        // map can still be the one from before the files changed, so booting the component is
-        // the reliable way to get at its classes.
+        // Booted rather than imported directly: during an update the autoloader map can still
+        // predate the changed files.
         /** @var \Joomla\Component\Scheduler\Administrator\Table\TaskTable $task */
         $task = Factory::getApplication()->bootComponent('com_scheduler')
             ->getMVCFactory()
@@ -264,11 +256,8 @@ class JoomlaInstallerScript
             'title' => 'Workflow Automation',
             'type'  => 'workflow.automation',
 
-            // Fifteen minutes is a starting value, not a constraint: nothing in the plugin reads
-            // it, and an administrator can change the interval, swap it for a cron expression,
-            // or switch the task off entirely. It is deliberately slower than a developer would
-            // choose, because this ships to every Joomla site including the many that never turn
-            // workflows on, and on those the run finds no candidates and exits immediately.
+            // Deliberately slow: this ships to every site, including the many with no workflows,
+            // where each run finds nothing. Administrators can change it.
             'execution_rules' => json_encode([
                 'rule-type'        => 'interval-minutes',
                 'interval-minutes' => 15,
@@ -279,7 +268,6 @@ class JoomlaInstallerScript
             'state'          => 1,
             'next_execution' => Factory::getDate('+15 minutes')->toSql(),
 
-            // Silent on success, loud on failure, matching the three tasks Joomla seeds itself.
             'params' => json_encode([
                 'individual_log' => false,
                 'log_file'       => '',
@@ -293,9 +281,6 @@ class JoomlaInstallerScript
         ]);
 
         if (!$task->check() || !$task->store()) {
-            // No getError() here: it is deprecated, and the table has already set the detail on
-            // itself. What matters for the update is that this step did not complete and the
-            // rest should carry on regardless.
             $this->collectError(__METHOD__, new \RuntimeException('The workflow automation task could not be stored.'));
         }
     }
