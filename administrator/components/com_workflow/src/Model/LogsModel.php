@@ -164,6 +164,17 @@ class LogsModel extends ListModel
             $automationLogQuery->order($db->quoteName($db->escape($orderColumn)) . ' ' . $db->escape($orderDirection));
         }
 
+        // One scheduler run writes several rows inside the same second, so executed_at on its own
+        // leaves ties in whatever order the database happens to return, and it is free to return a
+        // different one each time. That breaks pagination rather than merely looking untidy: with
+        // LIMIT/OFFSET over an unstable sort, a row can appear on two pages while another appears
+        // on none, so an administrator paging through the log quietly loses entries. Ordering by
+        // the row id last settles every tie by insertion order, which is also the order the rows
+        // actually happened in. Guarded so it is not added twice if id ever becomes a sort option.
+        if ($orderColumn !== 'l.id') {
+            $automationLogQuery->order($db->quoteName('l.id') . ' ' . $db->escape($orderDirection));
+        }
+
         return $automationLogQuery;
     }
 
