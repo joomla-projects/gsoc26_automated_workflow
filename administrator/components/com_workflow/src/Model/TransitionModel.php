@@ -11,10 +11,13 @@
 
 namespace Joomla\Component\Workflow\Administrator\Model;
 
+use Cron\CronExpression;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Form\Form;
+use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\Model\AdminModel;
 use Joomla\CMS\Plugin\PluginHelper;
+use Joomla\Database\ParameterType;
 use Joomla\Registry\Registry;
 use Joomla\String\StringHelper;
 
@@ -118,6 +121,36 @@ class TransitionModel extends AdminModel
             $item->options = $registry->toArray();
         }
 
+        if (!empty($item->id)) {
+            $db    = $this->getDatabase();
+            $query = $db->getQuery(true)
+                ->select($db->quoteName([
+                    'rule_type',
+                    'delay_value',
+                    'delay_unit',
+                    'cron_expression',
+                    'run_as_user_id',
+                    'item_filter',
+                    'fire_condition',
+                ]))
+                ->from($db->quoteName('#__workflow_automation_rules'))
+                ->where($db->quoteName('transition_id') . ' = :id')
+                ->bind(':id', $item->id, ParameterType::INTEGER)
+                ->setLimit(1);
+
+            $rule = $db->setQuery($query)->loadAssoc();
+
+            if ($rule) {
+                $item->automation = [
+                    'automation_enabled' => 1,
+                    'run_as_user_id'     => (int) ($rule['run_as_user_id'] ?? 0),
+                    'automation_rules'   => $rule,
+                ];
+            } else {
+                $item->automation = ['automation_enabled' => 0, 'run_as_user_id' => 0, 'automation_rules' => []];
+            }
+        }
+
         return $item;
     }
 
@@ -132,6 +165,21 @@ class TransitionModel extends AdminModel
      */
     public function save($data)
     {
+        // Pull automation data out. The transition-level toggle decides whether a rule is kept:
+        // when it is off, an empty rule clears any existing one.
+        $automationData    = $data['automation'] ?? [];
+        $automationEnabled = !empty($automationData['automation_enabled']);
+        $automationRule    = $automationEnabled ? ($automationData['automation_rules'] ?? []) : [];
+        unset($data['automation']);
+
+        if (!empty($automationRule)) {
+            $automationRule['run_as_user_id'] = (int) ($automationData['run_as_user_id'] ?? 0);
+        }
+
+        if (!$this->validateAutomation($automationRule)) {
+            return false;
+        }
+
         $table      = $this->getTable();
         $context    = $this->option . '.' . $this->name;
         $app        = Factory::getApplication();
@@ -178,7 +226,29 @@ class TransitionModel extends AdminModel
             $data['published'] = 0;
         }
 
-        return parent::save($data);
+        if (!parent::save($data)) {
+            return false;
+        }
+
+        $pk = (int) $this->getState($this->getName() . '.id');
+
+        try {
+            $this->saveAutomationRule($pk, $automationRule);
+        } catch (\Throwable $error) {
+            // parent::save() has already committed the transition, so there is nothing to undo
+            // here. saveAutomationRule() rolls its own transaction back, so the previously
+            // stored rule survives intact. What must not survive is the exception: unhandled it
+            // reaches the user as a 500 page that says nothing about which half of the save
+            // went through.
+            $app->enqueueMessage(
+                Text::sprintf('COM_WORKFLOW_AUTOMATION_RULE_SAVE_FAILED', $error->getMessage()),
+                'error'
+            );
+
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -329,5 +399,137 @@ class TransitionModel extends AdminModel
         PluginHelper::importPlugin('workflow');
 
         parent::preprocessForm($form, $data, $group);
+    }
+
+    /**
+     * Persists the automation rule for a transition, replacing whatever was there.
+     *
+     * Delete-then-insert rather than update, because a transition carries at most one rule and
+     * the same call has to handle three cases: no rule before and one now, one before and a
+     * different one now, and one before and none now when the administrator switches automation
+     * off. A unique key on transition_id enforces the "at most one" so this cannot quietly
+     * discard a second rule that should never have existed.
+     *
+     * @param   integer  $transitionId    The transition id.
+     * @param   array    $automationRule  The submitted rule, or empty to clear.
+     *
+     * @return  void
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function saveAutomationRule(int $transitionId, array $automationRule): void
+    {
+        $db   = $this->getDatabase();
+        $user = Factory::getApplication()->getIdentity();
+        $now  = Factory::getDate()->toSql();
+
+        // Replace: clear this transition's rule, then insert the submitted one if there is content.
+        // Wrapped in a transaction so a failure mid-save can't wipe the existing configuration.
+        try {
+            $db->transactionStart();
+
+            $db->setQuery(
+                $db->getQuery(true)
+                    ->delete($db->quoteName('#__workflow_automation_rules'))
+                    ->where($db->quoteName('transition_id') . ' = :id')
+                    ->bind(':id', $transitionId, ParameterType::INTEGER)
+            )->execute();
+
+            if (!empty($automationRule)) {
+                $ruleRow = (object) [
+                    'transition_id'   => $transitionId,
+                    'published'       => 1,
+                    'ordering'        => 0,
+                    'rule_type'       => $automationRule['rule_type'] ?? 'delay',
+                    'delay_value'     => (int) ($automationRule['delay_value'] ?? 0),
+                    'delay_unit'      => $automationRule['delay_unit'] ?? 'minutes',
+                    'cron_expression' => $automationRule['cron_expression'] ?? '',
+                    'run_as_user_id'  => (int) ($automationRule['run_as_user_id'] ?? 0),
+                    'item_filter'     => ($automationRule['item_filter'] ?? '') !== '' ? $automationRule['item_filter'] : null,
+                    'fire_condition'  => ($automationRule['fire_condition'] ?? '') !== '' ? $automationRule['fire_condition'] : null,
+                    'created'         => $now,
+                    'created_by'      => $user->id,
+                    'modified'        => $now,
+                    'modified_by'     => $user->id,
+                ];
+
+                $db->insertObject('#__workflow_automation_rules', $ruleRow);
+            }
+
+            $db->transactionCommit();
+        } catch (\Throwable $error) {
+            $db->transactionRollback();
+
+            throw $error;
+        }
+    }
+
+    /**
+     * Validates the automation rule data submitted with a transition.
+     *
+     * Form-level validation only runs in the browser; this guards the model when
+     * data arrives from any other path. Only enforced when automation is enabled.
+     *
+     * @param   array  $data  The automation sub-form data.
+     *
+     * @return  boolean  True if valid, false (with a message enqueued) otherwise.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function validateAutomationRule(array $data): bool
+    {
+        $app      = Factory::getApplication();
+        $ruleType = $data['rule_type'] ?? 'delay';
+
+        if (!\in_array($ruleType, ['delay', 'cron'], true)) {
+            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_RULE_TYPE'), 'error');
+
+            return false;
+        }
+
+        if ($ruleType === 'delay') {
+            if ((int) ($data['delay_value'] ?? 0) < 0) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_DELAY_VALUE'), 'error');
+
+                return false;
+            }
+
+            if (!\in_array($data['delay_unit'] ?? '', ['minutes', 'hours', 'days', 'months'], true)) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_DELAY_UNIT'), 'error');
+
+                return false;
+            }
+        }
+
+        if ($ruleType === 'cron') {
+            $expression = trim((string) ($data['cron_expression'] ?? ''));
+
+            if ($expression === '' || !CronExpression::isValidExpression($expression)) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_CRON'), 'error');
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function validateAutomation(array $automationRule): bool
+    {
+        // No rule submitted (automation disabled or empty) is valid.
+        if (empty($automationRule)) {
+            return true;
+        }
+
+        if (!$this->validateAutomationRule($automationRule)) {
+            return false;
+        }
+
+        // Non-blocking: a rule with no run-as user cannot execute.
+        if ((int) ($automationRule['run_as_user_id'] ?? 0) === 0) {
+            Factory::getApplication()->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_WARNING_NO_RUN_AS'), 'warning');
+        }
+
+        return true;
     }
 }

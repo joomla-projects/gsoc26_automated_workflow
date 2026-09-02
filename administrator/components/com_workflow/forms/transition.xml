@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <form>
+	<config>
+		<inlinehelp button="show"/>
+	</config>
 	<fieldset name="transition" addfieldprefix="Joomla\Component\Workflow\Administrator\Field">
 		<field
 			name="id"
@@ -24,7 +27,7 @@
 			sql_from="#__workflow_stages"
 			sql_order="ordering"
 			translate="true"
-			>
+		>
 			<option value="-1">JALL</option>
 		</field>
 		<field
@@ -55,7 +58,7 @@
 			class="form-select-color-state"
 			default="1"
 			validate="options"
-			>
+		>
 			<option value="1">JENABLED</option>
 			<option value="0">JDISABLED</option>
 			<option value="-2">JTRASHED</option>
@@ -77,4 +80,40 @@
 			section="transition"
 		/>
 	</fieldset>
+	<fields name="automation">
+		<fieldset name="automation" label="COM_WORKFLOW_AUTOMATION_FIELDSET_LABEL">
+
+
+			<field
+				name="automation_enabled"
+				type="radio"
+				layout="joomla.form.field.radio.switcher"
+				label="COM_WORKFLOW_AUTOMATION_ENABLE_TRANSITION_LABEL"
+				description="COM_WORKFLOW_AUTOMATION_ENABLE_TRANSITION_DESC"
+				default="0"
+			>
+				<option value="0">JNO</option>
+				<option value="1">JYES</option>
+			</field>
+			<field
+				name="run_as_user_id"
+				type="user"
+				label="COM_WORKFLOW_AUTOMATION_RUN_AS_LABEL"
+				description="COM_WORKFLOW_AUTOMATION_RUN_AS_DESC"
+				showon="automation_enabled:1"
+			/>
+
+			<field
+				name="automation_rules"
+				type="subform"
+				label="COM_WORKFLOW_AUTOMATION_RULES_LABEL"
+				description="COM_WORKFLOW_AUTOMATION_RULES_DESC"
+				layout="joomla.form.field.subform.default"
+				formsource="administrator/components/com_workflow/forms/automation_rule.xml"
+				showon="automation_enabled:1"
+			/>
+
+
+		</fieldset>
+	</fields>
 </form>
