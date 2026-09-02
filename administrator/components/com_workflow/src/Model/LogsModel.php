@@ -112,7 +112,9 @@ class LogsModel extends ListModel
         if ($result === 'ok') {
             $automationLogQuery->where($db->quoteName('l.exit_code') . ' = 0');
         } elseif ($result === 'failed') {
-            $automationLogQuery->where($db->quoteName('l.exit_code') . ' <> 0');
+            $automationLogQuery->where($db->quoteName('l.exit_code') . ' NOT IN (0, 4)');
+        } elseif ($result === 'skipped') {
+            $automationLogQuery->where($db->quoteName('l.exit_code') . ' = 4');
         }
 
         $search = $this->getState('filter.search');
@@ -125,10 +127,6 @@ class LogsModel extends ListModel
             } else {
                 $search = '%' . str_replace(' ', '%', trim($search)) . '%';
 
-                // The title lives on the extension's own table, so it cannot be joined: one query
-                // cannot join a different table per row. A subquery works because the list is
-                // already scoped to a single extension, and it keeps the matching in the database
-                // rather than pulling every matching id into PHP first.
                 $titleLocation = $extension !== ''
                     ? (new ItemStorage($db))->titleLocation($extension)
                     : null;
@@ -158,6 +156,11 @@ class LogsModel extends ListModel
 
         if (!empty($orderColumn)) {
             $automationLogQuery->order($db->quoteName($db->escape($orderColumn)) . ' ' . $db->escape($orderDirection));
+        }
+
+        // Ties on executed_at would otherwise sort unpredictably, which breaks LIMIT/OFFSET paging.
+        if ($orderColumn !== 'l.id') {
+            $automationLogQuery->order($db->quoteName('l.id') . ' ' . $db->escape($orderDirection));
         }
 
         return $automationLogQuery;

@@ -345,22 +345,46 @@ class Workflow
      *
      * @param   integer[]  $pks           The item IDs, which should use the transition
      * @param   integer    $transitionId  The transition which should be executed
+     * @param   string     $triggeredBy   What caused the transition to run
      *
      * @return  boolean
      */
     public function executeTransition(array $pks, int $transitionId, string $triggeredBy = 'manual'): bool
     {
+        return $this->attemptTransition($pks, $transitionId, $triggeredBy) === TransitionStatus::SUCCESS;
+    }
+
+    /**
+     * Executes a transition and reports which outcome it reached.
+     *
+     * executeTransition() answers the same question with a boolean, which cannot distinguish an
+     * item that has moved out of the starting stage from a permission failure or a plugin veto.
+     * Callers that need to react differently to those cases use this instead of checking the
+     * item's stage themselves, which would read the association a second time and leave a window
+     * in which it can change.
+     *
+     * @param   integer[]  $pks           The item IDs, which should use the transition
+     * @param   integer    $transitionId  The transition which should be executed
+     * @param   string     $triggeredBy   What caused the transition to run
+     *
+     * @return  integer  A TransitionStatus constant
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function attemptTransition(array $pks, int $transitionId, string $triggeredBy = 'manual'): int
+    {
         $pks = ArrayHelper::toInteger($pks);
         $pks = array_filter($pks);
 
+        // Nothing to move is not a failure, and executeTransition() has always answered true here.
         if (!\count($pks)) {
-            return true;
+            return TransitionStatus::SUCCESS;
         }
 
         $transition = $this->getValidTransition($pks, $transitionId);
 
         if (\is_null($transition)) {
-            return false;
+            return TransitionStatus::INVALID_TRANSITION;
         }
 
         $transition->options = new Registry($transition->options);
@@ -376,7 +400,7 @@ class Workflow
                     -1,
                 ]) || $transition->workflow_id !== $assoc->workflow_id
             ) {
-                return false;
+                return TransitionStatus::STAGE_MISMATCH;
             }
         }
 
@@ -398,7 +422,7 @@ class Workflow
         );
 
         if ($eventResult->getArgument('stopTransition')) {
-            return false;
+            return TransitionStatus::STOPPED_BY_PLUGIN;
         }
 
         $success = $this->updateAssociations($pks, (int) $transition->to_stage_id);
@@ -420,7 +444,7 @@ class Workflow
             );
         }
 
-        return $success;
+        return $success ? TransitionStatus::SUCCESS : TransitionStatus::UPDATE_FAILED;
     }
 
     /**

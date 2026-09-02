@@ -87,6 +87,8 @@ $extension = $this->escape((string) $this->state->get('filter.extension'));
                                     <td class="text-center">
                                         <?php if ((int) $item->exit_code === 0) : ?>
                                             <span class="badge bg-success"><?php echo Text::_('COM_WORKFLOW_LOGS_RESULT_OK'); ?></span>
+                                        <?php elseif ((int) $item->exit_code === 4) : ?>
+                                            <span class="badge bg-secondary"><?php echo Text::_('COM_WORKFLOW_LOGS_RESULT_SKIPPED'); ?></span>
                                         <?php else : ?>
                                             <span class="badge bg-danger"><?php echo Text::_('COM_WORKFLOW_LOGS_RESULT_FAILED'); ?></span>
                                             <?php if ($resetLink) : ?>

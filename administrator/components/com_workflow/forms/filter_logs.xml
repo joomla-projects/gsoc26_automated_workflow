@@ -17,6 +17,7 @@
 			<option value="">COM_WORKFLOW_LOGS_SELECT_RESULT</option>
 			<option value="ok">COM_WORKFLOW_LOGS_RESULT_OK</option>
 			<option value="failed">COM_WORKFLOW_LOGS_RESULT_FAILED</option>
+			<option value="skipped">COM_WORKFLOW_LOGS_RESULT_SKIPPED</option>
 		</field>
 	</fields>
 

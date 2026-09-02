@@ -16,6 +16,7 @@ use Joomla\CMS\Language\Text;
 use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\CMS\Uri\Uri;
 use Joomla\CMS\User\UserFactoryInterface;
+use Joomla\CMS\Workflow\TransitionStatus;
 use Joomla\CMS\Workflow\Workflow;
 use Joomla\Component\Scheduler\Administrator\Event\ExecuteTaskEvent;
 use Joomla\Component\Scheduler\Administrator\Task\Status as TaskStatus;
@@ -91,6 +92,33 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     private const MAX_FAILURE_REASON_LENGTH = 500;
 
     /**
+     * Outcomes recorded in #__workflow_automation_log.exit_code.
+     *
+     * Kept as constants because the numbers appear at every call site and mean nothing on
+     * sight. The column's own comment lists them too; these are the authority and that comment
+     * follows them.
+     *
+     * @var integer
+     * @since __DEPLOY_VERSION__
+     */
+    private const EXIT_OK        = 0;
+    private const EXIT_REFUSED   = 1;
+    private const EXIT_EXCEPTION = 3;
+
+    /**
+     * The item moved on before the transition could fire.
+     *
+     * Separate from EXIT_REFUSED because it is not a fault. A candidate is fetched at the start
+     * of a run and acted on later; if somebody transitions the item by hand in between, the
+     * candidate describes a stage the item has already left. Nothing went wrong and nobody needs
+     * telling, but it belongs in the log so the run can be accounted for.
+     *
+     * @var integer
+     * @since __DEPLOY_VERSION__
+     */
+    private const EXIT_NO_LONGER_APPLICABLE = 4;
+
+    /**
      * Stands in for "never checked" when sorting. The earliest datetime MySQL accepts, so a
      * row that has never been considered always sorts ahead of one that has.
      *
@@ -132,14 +160,11 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * Assumptions about the operating environment:
      * - The scheduler holds a per-task lock and will not run this task concurrently with itself,
      *   so no per-rule or per-item locking is done here.
-     * - Candidates are read once at the start of the run, so an item may be moved by a manual
-     *   transition while the run is still in progress. Workflow::executeTransition() re-checks
-     *   the item's current stage association before acting, so a stale candidate cannot fire a
-     *   transition that no longer applies. See fireRule() for how that outcome is reported.
+     *  - Candidates are read once at the start of the run, so an item may be moved by a manual
+     *   transition while the run is still in progress. Workflow::attemptTransition() re-checks
+     *   the item's current stage association before acting and reports STAGE_MISMATCH, so a
+     *   stale candidate cannot fire a transition that no longer applies.
      *
-     * $event cannot be removed. standardRoutineHandler() reflects on the method and requires
-     * exactly one required parameter typed ExecuteTaskEvent with an int return; drop it and
-     * the plugin logs "Incorrect routine method signature" and refuses to run
      *
      * @param   ExecuteTaskEvent  $event  The scheduler event.
      *
@@ -289,17 +314,12 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 $db->quoteName('war.cron_expression'),
                 $db->quoteName('war.item_filter'),
                 $db->quoteName('war.fire_condition'),
-                // The transition's ordering, not the rule's. A transition carries at most one
-                // rule, so rules only ever compete across transitions, and transition ordering
-                // is what an administrator can actually set by dragging in the Transitions list.
                 $db->quoteName('wt.ordering'),
                 $db->quoteName('wis.item_id'),
                 $db->quoteName('wis.extension'),
                 $db->quoteName('wis.id', 'item_state_id'),
                 $db->quoteName('wis.entered_at'),
                 $db->quoteName('war.run_as_user_id'),
-                // Read back so the run can tell a fault it has already reported
-                // from a new one.
                 $db->quoteName('wis.last_failure_reason'),
             ])
             ->from($db->quoteName('#__workflow_item_state', 'wis'))
@@ -694,9 +714,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 continue;
             }
 
-            // Due, but does the rule's filter scope in this item at all? A rule whose
-            // stored expression cannot be evaluated is reported as a failure and
-            // skipped, never silently treated as passing or failing.
             try {
                 if (!$conditionEvaluator->evaluate($candidate->item_filter, $fieldResolver)) {
                     continue;
@@ -707,11 +724,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                     continue;
                 }
             } catch (ConditionEvaluationException $invalidCondition) {
-                // Only the first unreadable rule on this item is kept. A second one would
-                // overwrite the first, and an administrator fixes them one at a time anyway:
-                // repairing this rule lets the next run surface whatever is behind it.
-                // The item id is not part of the text because the text is stored on the item's
-                // own row; the caller puts it back when building the notification.
                 $evaluationFailure ??= mb_substr(
                     'Rule ' . $candidate->rule_id . ' could not be evaluated: ' . $invalidCondition->getMessage(),
                     0,
@@ -724,18 +736,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         }
 
         if (!empty($eligibleRules)) {
-            // Soonest deadline wins, matching UpcomingTransitionsCalculator. Sorting by ordering
-            // alone is a leftover from when a single stored next_transition_at answered "is it
-            // due": every row the query returned was already due, so ordering was the only thing
-            // left to choose between them. Deadlines are computed per rule now, so "which fires
-            // next" has a real answer, and using anything else lets the preview advertise one
-            // transition while the scheduler fires another.
-            //
-            // ordering is still the tiebreak, which is the job it can actually do: two rules on
-            // the same stage with the same delay come due at the same instant, and an
-            // administrator ranking them is the only way to separate those. rule_id last, so a
-            // tie is broken the same way on every run rather than by whatever order the database
-            // happened to return.
             usort(
                 $eligibleRules,
                 static fn (array $a, array $b): int => [$a['deadline'], (int) $a['rule']->ordering, (int) $a['rule']->rule_id]
@@ -756,13 +756,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * so it reaches an administrator, the automation log gains a row so there is a history, and
      * the item's own state row gains the reason so the screens can explain the delay.
      *
-     * Whether the item is also taken out of the scheduler is the one real difference between
-     * failure kinds, so it is a parameter. A transition that failed to execute is blocked,
-     * because retrying it will fail the same way until somebody looks at it. A rule that names
-     * no usable user is not blocked, because that is a fault in the rule rather than in the
-     * item: correcting one field fixes every item at once, and the reason clears itself on the
-     * next clean run. Blocking would leave an administrator clearing a flag item by item after
-     * a one-line fix.
      *
      * @param   DueAutomation  $rule            The rule that could not fire.
      * @param   string[]       $failures        Collected failure messages (by reference).
@@ -781,7 +774,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         array &$failures,
         array &$failureReasons,
         string $note,
-        int $exitCode = 1,
+        int $exitCode = self::EXIT_REFUSED,
         bool $blockRetries = false
     ): void {
         $reason = mb_substr(
@@ -792,10 +785,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
         $failureReasons[$rule->item_state_id] = $reason;
 
-        // Reported, and written to the automation log, only when the reason differs from the
-        // one already stored. A rule that stays broken fails again on every run, and a log row
-        // plus an email every minute would bury the history the log exists to preserve. A
-        // failure that blocks retries can only happen once, so this changes nothing for those.
         if ($reason !== $rule->last_failure_reason) {
             $failures[] = $this->notificationLine((int) $rule->item_id, $reason, $this->itemEditLink($rule));
 
@@ -829,18 +818,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $runAsUserId  = $rule->run_as_user_id;
         $originalUser = $app->getIdentity();
 
-        // A rule acts as the user it names, and only as that user. Both ways of not having one
-        // are refusals rather than fallbacks.
-        // run_as_user_id is 0 whenever nobody filled the field in. Saving a rule like that is
-        // allowed with only a warning, so this is reachable in ordinary use rather than only
-        // through tampering. A deleted user comes back from loadUserById() as an empty User
-        // with id 0 rather than as null, so the load has to be checked, not assumed.
-        //
-        // Carrying on either way executes the transition as whatever identity the scheduler is
-        // holding. From cron that is a guest and the transition merely fails confusingly. When
-        // the lazy scheduler fires from a page request it is the person who loaded that page,
-        // and the rule would act with their permissions instead of the ones an administrator
-        // chose for it. Neither is what the rule says it does.
         if ($runAsUserId <= 0) {
             $this->recordRuleFailure(
                 $rule,
@@ -869,27 +846,36 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             $app->loadIdentity($runAsUser);
 
             $workflow = new Workflow($rule->extension);
+            $outcome  = $workflow->attemptTransition([$rule->item_id], $transitionId, 'automation');
 
-            // executeTransition() re-checks the item's current stage association, so a candidate
-            // made stale by a manual transition earlier in this run returns false instead of
-            // firing. Note that false is currently indistinguishable from a genuine failure, so
-            // such a race is reported as one
-            if ($workflow->executeTransition([$rule->item_id], $transitionId, 'automation')) {
-                $this->logAutomationRun($rule, 0);
+            if ($outcome === TransitionStatus::SUCCESS) {
+                $this->logAutomationRun($rule, self::EXIT_OK);
+            } elseif ($outcome === TransitionStatus::STAGE_MISMATCH) {
+                // Reported by the same read that refused the transition, so an item moved by hand
+                // mid-run cannot be mistaken for a fault and blocked from future retries.
+                $this->logAutomationRun(
+                    $rule,
+                    self::EXIT_NO_LONGER_APPLICABLE,
+                    'The item left this stage before the transition ran, so it no longer applies.'
+                );
             } else {
                 $this->recordRuleFailure(
                     $rule,
                     $failures,
                     $failureReasons,
-                    'Transition could not be executed; permission denied, invalid transition, or stopped by a plugin.',
-                    1,
+                    match ($outcome) {
+                        TransitionStatus::INVALID_TRANSITION => 'The transition no longer exists, or the Run As user may not execute it.',
+                        TransitionStatus::STOPPED_BY_PLUGIN  => 'A plugin stopped this transition.',
+                        TransitionStatus::UPDATE_FAILED      => 'The stage change could not be saved.',
+                        default                              => 'The transition was refused.',
+                    },
+                    self::EXIT_REFUSED,
                     true
                 );
             }
         } catch (\Throwable $error) {
-            $this->recordRuleFailure($rule, $failures, $failureReasons, $error->getMessage(), 3, true);
+            $this->recordRuleFailure($rule, $failures, $failureReasons, $error->getMessage(), self::EXIT_EXCEPTION, true);
         } finally {
-            // Always restore the scheduler's original identity.
             $app->loadIdentity($originalUser);
         }
     }
