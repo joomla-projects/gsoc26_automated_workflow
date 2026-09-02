@@ -11,10 +11,15 @@
 namespace Joomla\Component\Workflow\Administrator\Controller;
 
 use Joomla\CMS\Application\CMSApplication;
+use Joomla\CMS\Factory;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\Controller\FormController;
 use Joomla\CMS\MVC\Factory\MVCFactoryInterface;
+use Joomla\CMS\Response\JsonResponse;
 use Joomla\CMS\Router\Route;
+use Joomla\Component\Workflow\Administrator\Automation\ConditionEvaluationException;
+use Joomla\Component\Workflow\Administrator\Automation\FilterPreview;
+use Joomla\Database\DatabaseInterface;
 use Joomla\Input\Input;
 
 // phpcs:disable PSR1.Files.SideEffects
@@ -227,5 +232,49 @@ class TransitionController extends FormController
             $this->setRedirect(Route::_($return, false));
         }
         return $result;
+    }
+
+    /**
+     * Reports which items the item filter currently in the builder would match.
+     *
+     * @return  void
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function previewFilter(): void
+    {
+        try {
+            if (!$this->checkToken('post', false)) {
+                throw new \RuntimeException(Text::_('JINVALID_TOKEN_NOTICE'));
+            }
+
+            if (!$this->app->getIdentity()->authorise('core.edit', $this->extension . '.workflow.' . $this->workflowId)) {
+                throw new \RuntimeException(Text::_('JERROR_ALERTNOAUTHOR'));
+            }
+
+            $transitionId = $this->input->post->getInt('transition_id');
+
+            if ($transitionId <= 0) {
+                throw new \InvalidArgumentException(Text::_('COM_WORKFLOW_PREVIEW_ERROR_NO_TRANSITION'));
+            }
+
+            $preview = new FilterPreview(Factory::getContainer()->get(DatabaseInterface::class));
+
+            echo new JsonResponse(
+                $preview->forTransition(
+                    $transitionId,
+                    $this->input->post->getRaw('item_filter')
+                )
+            );
+        } catch (ConditionEvaluationException $invalidFilter) {
+            // A filter still being typed is normally incomplete, so this is an answer rather than
+            // a fault: no 500, and the message is what the builder shows next to the button.
+            echo new JsonResponse(null, $invalidFilter->getMessage(), true);
+        } catch (\Exception $e) {
+            $this->app->setHeader('status', 500);
+            echo new JsonResponse(null, $e->getMessage(), true);
+        }
+
+        $this->app->close();
     }
 }
