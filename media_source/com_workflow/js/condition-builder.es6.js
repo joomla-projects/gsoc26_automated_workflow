@@ -165,6 +165,13 @@
     sync() {
       const serialised = this.nodeToJson(this.tree);
       this.input.value = serialised ? JSON.stringify(serialised) : "";
+
+      // Any edit makes a previous answer describe an expression that no longer exists.
+      const output = this.root.querySelector('[data-role="preview-output"]');
+
+      if (output) {
+        output.textContent = "";
+      }
     }
 
     // ----- node factories -----
@@ -242,6 +249,11 @@
           this.pendingAdd = null;
         }
         this.render();
+        return;
+      }
+
+      if (action === "preview") {
+        this.runPreview();
         return;
       }
 
@@ -333,7 +345,10 @@
           el(
             "div",
             { class: "cb-expression-head" },
-            el("span", { class: "cb-chip cb-chip-expression", text: text.expression }),
+            el("span", {
+              class: "cb-chip cb-chip-expression",
+              text: text.expression,
+            }),
             this.renderNot(node),
             el("button", {
               type: "button",
@@ -451,9 +466,9 @@
         );
       }
 
-      return el(
+      const addArea = el(
         "div",
-        { class: "cb-add" },
+        { class: "cb-add flex-wrap align-items-center" },
         el(
           "button",
           {
@@ -473,6 +488,27 @@
           "+ " + text.addExpression,
         ),
       );
+
+      // Filter builder only, top level only, and only once there is something to ask about:
+      // with no checks the empty message already says the rule matches everything.
+      if (this.config.preview && path === "" && this.tree.items.length > 0) {
+        addArea.appendChild(
+          el(
+            "button",
+            {
+              type: "button",
+              class: "btn btn-sm btn-secondary",
+              "data-action": "preview",
+            },
+            text.preview,
+          ),
+        );
+        addArea.appendChild(
+          el("div", { class: "w-100 small", "data-role": "preview-output" }),
+        );
+      }
+
+      return addArea;
     }
 
     renderCheck(node, path) {
@@ -548,7 +584,10 @@
           type: type,
           class: "form-control",
           "data-role": "value",
-          value: node.value === null || node.value === undefined ? "" : String(node.value),
+          value:
+            node.value === null || node.value === undefined
+              ? ""
+              : String(node.value),
         });
       }
 
@@ -587,6 +626,69 @@
         return fancy;
       }
       return select;
+    }
+
+    // ----- filter preview -----
+
+    async runPreview() {
+      const preview = this.config.preview;
+      const text = this.config.text || {};
+      const output = this.root.querySelector('[data-role="preview-output"]');
+      const button = this.root.querySelector('[data-action="preview"]');
+
+      if (!output) return;
+
+      if (button) button.disabled = true;
+      output.className = "w-100 small text-muted";
+      output.textContent = text.previewRunning || "";
+
+      const body = new FormData();
+      body.append("extension", preview.extension);
+      body.append("workflow_id", preview.workflowId);
+      body.append("transition_id", preview.transitionId);
+      body.append("item_filter", this.input.value);
+      body.append(preview.token, "1");
+
+      try {
+        // The hidden input already holds the tree as typed, so this previews unsaved work.
+        const payload = await (
+          await fetch(preview.url, { method: "POST", body })
+        ).json();
+
+        if (!payload.success) {
+          output.className = "w-100 small text-danger";
+          output.textContent = payload.message || "";
+          return;
+        }
+
+        this.showPreviewResult(output, payload.data);
+      } catch (error) {
+        output.className = "w-100 small text-danger";
+        output.textContent = error.message;
+      } finally {
+        if (button) button.disabled = false;
+      }
+    }
+
+    showPreviewResult(output, data) {
+      const text = this.config.text || {};
+
+      if (!data.scanned) {
+        output.textContent = text.previewEmpty || "";
+        return;
+      }
+
+      const template = data.capped ? text.previewCapped : text.previewResult;
+
+      output.textContent = (template || "%1$s / %2$s")
+        .replace("%1$s", data.matched)
+        .replace("%2$s", data.scanned);
+
+      if (data.titles.length) {
+        output.appendChild(
+          el("div", { class: "text-muted" }, data.titles.join(", ")),
+        );
+      }
     }
   }
 
