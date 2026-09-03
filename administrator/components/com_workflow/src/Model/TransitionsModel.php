@@ -156,6 +156,16 @@ class TransitionsModel extends ListModel
             ->join('LEFT', $db->quoteName('#__workflow_stages', 't_stage'), $db->quoteName('t_stage.id') . ' = ' . $db->quoteName('t.to_stage_id'))
             ->join('LEFT', $db->quoteName('#__users', 'uc'), $db->quoteName('uc.id') . ' = ' . $db->quoteName('t.checked_out'));
 
+        // A subquery rather than a join: #__workflow_automation_rules has no UNIQUE(transition_id),
+        // so a join could return a transition twice. MAX() also means a rule that is switched off
+        // does not count as automated.
+        $query->select(
+            '(SELECT MAX(' . $db->quoteName('war.published') . ')'
+                . ' FROM ' . $db->quoteName('#__workflow_automation_rules', 'war')
+                . ' WHERE ' . $db->quoteName('war.transition_id') . ' = ' . $db->quoteName('t.id') . ')'
+                . ' AS ' . $db->quoteName('automated')
+        );
+
         // Filter by extension
         if ($workflowID = (int) $this->getState('filter.workflow_id')) {
             $query->where($db->quoteName('t.workflow_id') . ' = :id')
