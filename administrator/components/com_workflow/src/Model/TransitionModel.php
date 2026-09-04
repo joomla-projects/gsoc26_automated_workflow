@@ -12,11 +12,13 @@
 namespace Joomla\Component\Workflow\Administrator\Model;
 
 use Cron\CronExpression;
+use Joomla\CMS\Access\Access;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Form\Form;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\Model\AdminModel;
 use Joomla\CMS\Plugin\PluginHelper;
+use Joomla\CMS\User\UserFactoryInterface;
 use Joomla\Database\ParameterType;
 use Joomla\Registry\Registry;
 use Joomla\String\StringHelper;
@@ -176,7 +178,11 @@ class TransitionModel extends AdminModel
             $automationRule['run_as_user_id'] = (int) ($automationData['run_as_user_id'] ?? 0);
         }
 
-        if (!$this->validateAutomation($automationRule)) {
+        // Resolved here as well as at line 207, because the permission check below authorises
+        // against the transition's own asset and cannot wait.
+        $transitionId = (int) ($data['id'] ?? $this->getState($this->getName() . '.id'));
+
+        if (!$this->validateAutomation($automationRule, $transitionId)) {
             return false;
         }
 
@@ -514,7 +520,7 @@ class TransitionModel extends AdminModel
         return true;
     }
 
-    private function validateAutomation(array $automationRule): bool
+    private function validateAutomation(array $automationRule, int $transitionId): bool
     {
         // No rule submitted (automation disabled or empty) is valid.
         if (empty($automationRule)) {
@@ -525,11 +531,155 @@ class TransitionModel extends AdminModel
             return false;
         }
 
+        $app         = Factory::getApplication();
+        $runAsUserId = (int) ($automationRule['run_as_user_id'] ?? 0);
+
         // Non-blocking: a rule with no run-as user cannot execute.
-        if ((int) ($automationRule['run_as_user_id'] ?? 0) === 0) {
-            Factory::getApplication()->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_WARNING_NO_RUN_AS'), 'warning');
+        if ($runAsUserId === 0) {
+            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_WARNING_NO_RUN_AS'), 'warning');
+
+            return true;
+        }
+
+        // Only a change is restricted. Someone editing a delay on a rule an administrator set up
+        // must not be blocked by a run-as user who outranks them, or the people who maintain the
+        // rest of a workflow cannot touch its automation at all.
+        if ($runAsUserId !== $this->storedRunAsUserId($transitionId) && !$this->mayDelegateTo($runAsUserId)) {
+            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_RUN_AS_TOO_HIGH'), 'error');
+
+            return false;
+        }
+
+        // A warning rather than a refusal: the permission is often granted after the rule is
+        // written, and refusing the save is the more disruptive of the two mistakes.
+        if ($transitionId > 0 && !$this->canExecuteTransition($runAsUserId, $transitionId)) {
+            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_WARNING_RUN_AS_CANNOT_EXECUTE'), 'warning');
         }
 
         return true;
+    }
+
+    /**
+     * The run-as user already stored for this transition, or 0 when there is no rule yet.
+     *
+     * @param   integer  $transitionId  The transition being saved.
+     *
+     * @return  integer
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function storedRunAsUserId(int $transitionId): int
+    {
+        if ($transitionId <= 0) {
+            return 0;
+        }
+
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->select($db->quoteName('run_as_user_id'))
+            ->from($db->quoteName('#__workflow_automation_rules'))
+            ->where($db->quoteName('transition_id') . ' = :transitionId')
+            ->bind(':transitionId', $transitionId, ParameterType::INTEGER);
+
+        return (int) $db->setQuery($query)->loadResult();
+    }
+
+    /**
+     * Whether the current user may hand execution to this account.
+     *
+     * Joomla's group tree runs the opposite way to intuition: a child group inherits its parent's
+     * permissions and adds to them, so descendants hold more rather than less. An account is only
+     * safe to delegate to when every group it belongs to is one of the editor's own groups or an
+     * ancestor of one.
+     *
+     * A proxy rather than a proof, since an explicit Deny can leave a descendant with fewer rights
+     * than its parent. It stops the obvious escalation; canExecuteTransition() decides whether the
+     * rule can actually run.
+     *
+     * @param   integer  $candidateUserId  The account being named as the run-as user.
+     *
+     * @return  boolean
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function mayDelegateTo(int $candidateUserId): bool
+    {
+        $user = Factory::getApplication()->getIdentity();
+
+        if ((int) $user->id === $candidateUserId) {
+            return true;
+        }
+
+        $parts = explode('.', (string) Factory::getApplication()->getInput()->get('extension'));
+
+        if ($user->authorise('core.admin', array_shift($parts))) {
+            return true;
+        }
+
+        $candidateGroups = Access::getGroupsByUser($candidateUserId, false);
+
+        if ($candidateGroups === []) {
+            return true;
+        }
+
+        $reachable = $this->groupsWithNoMorePermission(Access::getGroupsByUser((int) $user->id, false));
+
+        return array_diff($candidateGroups, $reachable) === [];
+    }
+
+    /**
+     * The groups that hold no more permission than the given ones, by tree position.
+     *
+     * @param   int[]  $groupIds  The editor's own groups.
+     *
+     * @return  int[]
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function groupsWithNoMorePermission(array $groupIds): array
+    {
+        if ($groupIds === []) {
+            return [];
+        }
+
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->select('DISTINCT ' . $db->quoteName('ancestor.id'))
+            ->from($db->quoteName('#__usergroups', 'own'))
+            ->join(
+                'INNER',
+                $db->quoteName('#__usergroups', 'ancestor'),
+                $db->quoteName('ancestor.lft') . ' <= ' . $db->quoteName('own.lft')
+                    . ' AND ' . $db->quoteName('ancestor.rgt') . ' >= ' . $db->quoteName('own.rgt')
+            )
+            ->whereIn($db->quoteName('own.id'), $groupIds);
+
+        return array_map('intval', $db->setQuery($query)->loadColumn());
+    }
+
+    /**
+     * Whether an account holds the permission the scheduler will need at run time.
+     *
+     * Asks exactly what Workflow::getValidTransition() asks, so a rule that saves cleanly is one
+     * that can actually fire.
+     *
+     * @param   integer  $userId        The run-as account.
+     * @param   integer  $transitionId  The transition it would execute.
+     *
+     * @return  boolean
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function canExecuteTransition(int $userId, int $transitionId): bool
+    {
+        $runAsUser = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($userId);
+
+        if ((int) $runAsUser->id !== $userId) {
+            return false;
+        }
+
+        $parts = explode('.', (string) Factory::getApplication()->getInput()->get('extension'));
+
+        return $runAsUser->authorise('core.execute.transition', array_shift($parts) . '.transition.' . $transitionId);
     }
 }
