@@ -401,6 +401,24 @@ class TransitionModel extends AdminModel
         // Set the access control rules field component value.
         $form->setFieldAttribute('rules', 'component', $extension);
 
+        // The picker only offers accounts this editor could legitimately delegate to, so an
+        // impossible choice is never on the menu. validateAutomation() enforces the same rule on
+        // save, because a filtered picker is only HTML and the field can still be posted directly.
+        $user = $this->getCurrentUser();
+
+        if (!$user->authorise('core.admin', $extension)) {
+            $reachable = $this->groupsWithNoMorePermission(Access::getGroupsByUser((int) $user->id, false));
+
+            // 0 is not a real group id, so an account somehow in no groups at all sees nobody
+            // rather than everybody.
+            $form->setFieldAttribute(
+                'run_as_user_id',
+                'groups',
+                implode(',', $reachable ?: [0]),
+                'automation'
+            );
+        }
+
         // Import the appropriate plugin group.
         PluginHelper::importPlugin('workflow');
 
@@ -610,10 +628,20 @@ class TransitionModel extends AdminModel
             return true;
         }
 
-        $parts = explode('.', (string) Factory::getApplication()->getInput()->get('extension'));
+        $parts     = explode('.', (string) Factory::getApplication()->getInput()->get('extension'));
+        $extension = array_shift($parts);
 
-        if ($user->authorise('core.admin', array_shift($parts))) {
+        if ($user->authorise('core.admin', $extension)) {
             return true;
+        }
+
+        // Normally redundant: a child inherits its parent's permissions, so anything an ancestor
+        // group holds, this editor holds too, and there would be nothing to escalate to. An
+        // explicit Deny breaks that.
+        $candidate = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($candidateUserId);
+
+        if ((int) $candidate->id === $candidateUserId && $candidate->authorise('core.admin', $extension)) {
+            return false;
         }
 
         $candidateGroups = Access::getGroupsByUser($candidateUserId, false);
