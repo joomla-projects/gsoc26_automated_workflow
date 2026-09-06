@@ -163,23 +163,23 @@ final class FilterPreview
         $extension   = $transition->extension;
 
         $query = $db->getQuery(true)
-            ->select($db->quoteName('wa.item_id'))
-            ->from($db->quoteName('#__workflow_associations', 'wa'))
-            ->where($db->quoteName('wa.extension') . ' = :extension')
+            ->select($db->quoteName('wis.item_id'))
+            ->from($db->quoteName('#__workflow_item_state', 'wis'))
+            ->where($db->quoteName('wis.extension') . ' = :extension')
             ->bind(':extension', $extension, ParameterType::STRING)
-            ->order($db->quoteName('wa.item_id') . ' DESC');
+            ->order($db->quoteName('wis.item_id') . ' DESC');
 
         if ($fromStageId === -1) {
             // A wildcard transition starts from any stage in its own workflow.
             $query->join(
                 'INNER',
                 $db->quoteName('#__workflow_stages', 'ws'),
-                $db->quoteName('ws.id') . ' = ' . $db->quoteName('wa.stage_id')
+                $db->quoteName('ws.id') . ' = ' . $db->quoteName('wis.stage_id')
             )
                 ->where($db->quoteName('ws.workflow_id') . ' = :workflowId')
                 ->bind(':workflowId', $workflowId, ParameterType::INTEGER);
         } else {
-            $query->where($db->quoteName('wa.stage_id') . ' = :stageId')
+            $query->where($db->quoteName('wis.stage_id') . ' = :stageId')
                 ->bind(':stageId', $fromStageId, ParameterType::INTEGER);
         }
 
