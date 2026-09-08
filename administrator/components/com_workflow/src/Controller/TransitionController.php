@@ -10,8 +10,8 @@
 
 namespace Joomla\Component\Workflow\Administrator\Controller;
 
-use Joomla\CMS\Application\CMSApplication;
 use Joomla\CMS\Access\Exception\NotAllowed;
+use Joomla\CMS\Application\CMSApplication;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\Controller\FormController;

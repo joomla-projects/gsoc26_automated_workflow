@@ -78,7 +78,7 @@ final class FilterPreview
         ?string $filterJson,
         int $limit = self::DEFAULT_LIMIT
     ): array {
-        $empty = ['scanned' => 0, 'matched' => 0, 'titles' => [], 'capped' => false];
+        $empty      = ['scanned' => 0, 'matched' => 0, 'titles' => [], 'capped' => false];
         $evaluator  = new ConditionEvaluator();
 
         // Parsed before anything queries the database, so an unreadable filter costs nothing, and
