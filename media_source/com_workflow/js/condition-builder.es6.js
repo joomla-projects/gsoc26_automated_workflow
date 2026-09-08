@@ -170,6 +170,7 @@
       const output = this.root.querySelector('[data-role="preview-output"]');
 
       if (output) {
+        output.className = "w-100 small text-muted";
         output.textContent = "";
       }
     }
@@ -650,10 +651,16 @@
       body.append(preview.token, "1");
 
       try {
-        // The hidden input already holds the tree as typed, so this previews unsaved work.
-        const payload = await (
-          await fetch(preview.url, { method: "POST", body })
-        ).json();
+        const response = await fetch(preview.url, {
+          method: "POST",
+          body,
+        });
+
+        if (!response.ok) {
+          throw new Error(`${response.status} ${response.statusText}`);
+        }
+
+        const payload = await response.json();
 
         if (!payload.success) {
           output.className = "w-100 small text-danger";
@@ -681,8 +688,8 @@
       const template = data.capped ? text.previewCapped : text.previewResult;
 
       output.textContent = (template || "%1$s / %2$s")
-        .replace("%1$s", data.matched)
-        .replace("%2$s", data.scanned);
+        .replaceAll("%1$s", data.matched)
+        .replaceAll("%2$s", data.scanned);
 
       if (data.titles.length) {
         output.appendChild(

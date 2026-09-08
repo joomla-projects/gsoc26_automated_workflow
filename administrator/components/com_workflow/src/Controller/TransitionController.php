@@ -11,6 +11,7 @@
 namespace Joomla\Component\Workflow\Administrator\Controller;
 
 use Joomla\CMS\Application\CMSApplication;
+use Joomla\CMS\Access\Exception\NotAllowed;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\Controller\FormController;
@@ -248,17 +249,30 @@ class TransitionController extends FormController
                 throw new \RuntimeException(Text::_('JINVALID_TOKEN_NOTICE'));
             }
 
-            if (!$this->app->getIdentity()->authorise('core.edit', $this->extension . '.workflow.' . $this->workflowId)) {
-                throw new \RuntimeException(Text::_('JERROR_ALERTNOAUTHOR'));
-            }
-
             $transitionId = $this->input->post->getInt('transition_id');
 
             if ($transitionId <= 0) {
                 throw new \InvalidArgumentException(Text::_('COM_WORKFLOW_PREVIEW_ERROR_NO_TRANSITION'));
             }
 
-            $preview = new FilterPreview(Factory::getContainer()->get(DatabaseInterface::class));
+            $preview    = new FilterPreview(Factory::getContainer()->get(DatabaseInterface::class));
+            $transition = $preview->describeTransition($transitionId);
+
+            if ($transition === null) {
+                throw new \InvalidArgumentException(Text::_('COM_WORKFLOW_PREVIEW_ERROR_NO_TRANSITION'));
+            }
+
+            // The asset is built from the workflow the transition actually belongs to. Taking
+            // workflow_id from the request instead would let anyone able to edit one workflow read
+            // item titles out of a transition in a workflow they cannot.
+            $owningParts = explode('.', (string) $transition->extension);
+
+            if (!$this->app->getIdentity()->authorise(
+                'core.edit',
+                array_shift($owningParts) . '.workflow.' . (int) $transition->workflow_id
+            )) {
+                throw new NotAllowed(Text::_('JERROR_ALERTNOAUTHOR'), 403);
+            }
 
             echo new JsonResponse(
                 $preview->forTransition(
@@ -270,6 +284,9 @@ class TransitionController extends FormController
             // A filter still being typed is normally incomplete, so this is an answer rather than
             // a fault: no 500, and the message is what the builder shows next to the button.
             echo new JsonResponse(null, $invalidFilter->getMessage(), true);
+        } catch (NotAllowed $notAllowed) {
+            $this->app->setHeader('status', 403, true);
+            echo new JsonResponse(null, $notAllowed->getMessage(), true);
         } catch (\Exception $e) {
             $this->app->setHeader('status', 500);
             echo new JsonResponse(null, $e->getMessage(), true);

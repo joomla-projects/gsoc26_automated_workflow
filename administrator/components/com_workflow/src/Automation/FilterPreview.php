@@ -69,9 +69,13 @@ final class FilterPreview
         ?string $filterJson,
         int $limit = self::DEFAULT_LIMIT
     ): array {
-        $empty      = ['scanned' => 0, 'matched' => 0, 'titles' => [], 'capped' => false];
-        $transition = $this->loadTransition($transitionId);
+        $empty = ['scanned' => 0, 'matched' => 0, 'titles' => [], 'capped' => false];
+        $evaluator  = new ConditionEvaluator();
 
+        // Parsed before anything queries the database, so an unreadable filter costs nothing, and
+        // parsed once rather than once per item in the stage.
+        $filterTree = $evaluator->decode($filterJson);
+        $transition = $this->describeTransition($transitionId);
         if ($transition === null) {
             return $empty;
         }
@@ -91,11 +95,13 @@ final class FilterPreview
         $fieldResolver = new ItemFieldResolver($this->database);
         $fieldResolver->preload($scanIds, $extension);
 
-        $evaluator  = new ConditionEvaluator();
         $matchedIds = [];
 
         foreach ($scanIds as $itemId) {
-            if ($evaluator->evaluate($filterJson, $fieldResolver->forItem($itemId, $extension))) {
+            if (
+                $filterTree === null
+                || $evaluator->evaluateNode($filterTree, $fieldResolver->forItem($itemId, $extension))
+            ) {
                 $matchedIds[] = $itemId;
             }
         }
@@ -121,7 +127,7 @@ final class FilterPreview
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function loadTransition(int $transitionId): ?object
+    public function describeTransition(int $transitionId): ?object
     {
         $db = $this->database;
 
