@@ -30,7 +30,7 @@ endif;
     <thead>
         <tr>
             <th scope="col"><?php echo Text::_('COM_WORKFLOW_LOGS_EXECUTED_AT'); ?></th>
-            <th scope="col"><?php echo Text::_('COM_WORKFLOW_LOGS_ITEM_ID'); ?></th>
+            <th scope="col"><?php echo Text::_('COM_WORKFLOW_LOGS_ITEM'); ?></th>
             <th scope="col"><?php echo Text::_('COM_WORKFLOW_LOGS_TRANSITION'); ?></th>
             <th scope="col"><?php echo Text::_('COM_WORKFLOW_LOGS_STAGES'); ?></th>
             <th scope="col"><?php echo Text::_('COM_WORKFLOW_LOGS_RUN_AS'); ?></th>
@@ -39,10 +39,26 @@ endif;
         </tr>
     </thead>
     <tbody>
-        <?php foreach ($this->automationLog as $entry) : ?>
+        <?php foreach ($this->automationLog as $entry) :
+            $extensionParts = explode('.', (string) $entry->extension);
+            $itemEditLink   = (!empty($extensionParts[0]) && !empty($extensionParts[1]))
+                ? Route::_('index.php?option=' . $extensionParts[0] . '&task=' . $extensionParts[1] . '.edit&id=' . (int) $entry->item_id)
+                : '';
+            $itemTitle      = (string) ($entry->item_title ?? '');
+            $itemLabel      = $itemTitle !== '' ? $itemTitle : (string) (int) $entry->item_id;
+            ?>
             <tr>
                 <td><?php echo HTMLHelper::_('date', $entry->executed_at, Text::_('DATE_FORMAT_LC2')); ?></td>
-                <td><?php echo (int) $entry->item_id; ?></td>
+                <td>
+                    <?php if ($itemEditLink) : ?>
+                        <a href="<?php echo $itemEditLink; ?>"><?php echo $this->escape($itemLabel); ?></a>
+                    <?php else : ?>
+                        <?php echo $this->escape($itemLabel); ?>
+                    <?php endif; ?>
+                    <?php if ($itemTitle !== '') : ?>
+                        <div class="small text-muted"><?php echo Text::sprintf('COM_WORKFLOW_LOGS_ITEM_ID_INLINE', (int) $entry->item_id); ?></div>
+                    <?php endif; ?>
+                </td>
                 <td><?php echo $this->escape(Text::_((string) $entry->transition_title)); ?></td>
                 <td>
                     <span class="badge bg-secondary"><?php echo $this->escape(Text::_((string) $entry->from_stage)); ?></span>

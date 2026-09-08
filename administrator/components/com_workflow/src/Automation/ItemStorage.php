@@ -148,6 +148,48 @@ final class ItemStorage
 
         return $titles;
     }
+
+    /**
+     * Fills in each row's item title, keyed by that row's own extension.
+     *
+     * The title lives on whichever table the extension owns, so it cannot be joined. The query
+     * count follows the number of extensions in the set, never the number of rows.
+     *
+     * @param   object[]  $rows  Rows carrying item_id and extension.
+     *
+     * @return  object[]
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function annotateTitles(array $rows): array
+    {
+        if ($rows === []) {
+            return $rows;
+        }
+
+        $itemIdsByExtension = [];
+
+        foreach ($rows as $row) {
+            $itemIdsByExtension[$row->extension][] = (int) $row->item_id;
+        }
+
+        $titles = [];
+
+        foreach ($itemIdsByExtension as $extension => $itemIds) {
+            foreach ($this->titlesFor($itemIds, $extension) as $itemId => $title) {
+                // Keyed by extension and id together, because an item id is only unique within
+                // its own extension.
+                $titles[$extension . '.' . $itemId] = $title;
+            }
+        }
+
+        foreach ($rows as $row) {
+            $row->item_title = $titles[$row->extension . '.' . $row->item_id] ?? null;
+        }
+
+        return $rows;
+    }
+
     /**
      * Where an extension keeps its own items: the table and its key column.
      *

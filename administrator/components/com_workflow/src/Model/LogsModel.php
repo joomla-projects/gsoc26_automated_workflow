@@ -169,10 +169,6 @@ class LogsModel extends ListModel
     /**
      * Adds each row's item title, which no join can supply.
      *
-     * The log stores an item id and an extension; the title lives on whichever table that
-     * extension uses, so it is filled in after the fact. One query per extension in the result,
-     * not one per row.
-     *
      * @return  object[]|false
      *
      * @since   __DEPLOY_VERSION__
@@ -185,30 +181,7 @@ class LogsModel extends ListModel
             return $items;
         }
 
-        $idsByExtension = [];
-
-        foreach ($items as $item) {
-            $idsByExtension[$item->extension][] = (int) $item->item_id;
-        }
-
-        $itemStorage = new ItemStorage($this->getDatabase());
-        $titles      = [];
-
-        foreach ($idsByExtension as $extension => $itemIds) {
-            foreach ($itemStorage->titlesFor($itemIds, $extension) as $itemId => $title) {
-                // Keyed by extension and id together, because an item id is only unique within
-                // its own extension.
-                $titles[$extension . '.' . $itemId] = $title;
-            }
-        }
-
-        foreach ($items as $item) {
-            // The template expects this property whether or not a title was found; null means
-            // "show the id instead" rather than "no row".
-            $item->item_title = $titles[$item->extension . '.' . $item->item_id] ?? null;
-        }
-
-        return $items;
+        return (new ItemStorage($this->getDatabase()))->annotateTitles($items);
     }
 
     /**
