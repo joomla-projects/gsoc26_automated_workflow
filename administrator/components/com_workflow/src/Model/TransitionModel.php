@@ -633,7 +633,7 @@ class TransitionModel extends AdminModel
         }
 
         // Two separate ways a candidate can outrank the editor. A Super User is never a legitimate
-        // target for anyone who is not one. 
+        // target for anyone who is not one.
         $parts     = explode('.', (string) Factory::getApplication()->getInput()->get('extension'));
         $extension = array_shift($parts);
         $candidate = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($candidateUserId);
