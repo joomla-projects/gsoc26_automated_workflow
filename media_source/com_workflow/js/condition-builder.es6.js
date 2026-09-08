@@ -170,7 +170,7 @@
       const output = this.root.querySelector('[data-role="preview-output"]');
 
       if (output) {
-        output.className = "w-100 small text-muted";
+        output.className = "w-100 small";
         output.textContent = "";
       }
     }
@@ -640,8 +640,11 @@
       if (!output) return;
 
       if (button) button.disabled = true;
-      output.className = "w-100 small text-muted";
-      output.textContent = text.previewRunning || "";
+      output.className = "w-100 small";
+      output.textContent = "";
+      output.appendChild(
+        el("div", { class: "text-muted", text: text.previewRunning || "" }),
+      );
 
       const body = new FormData();
       body.append("extension", preview.extension);
@@ -680,22 +683,173 @@
     showPreviewResult(output, data) {
       const text = this.config.text || {};
 
+      output.textContent = "";
+
       if (!data.scanned) {
-        output.textContent = text.previewEmpty || "";
+        output.appendChild(
+          el("div", { class: "text-muted", text: text.previewEmpty || "" }),
+        );
         return;
       }
 
       const template = data.capped ? text.previewCapped : text.previewResult;
 
-      output.textContent = (template || "%1$s / %2$s")
-        .replaceAll("%1$s", data.matched)
-        .replaceAll("%2$s", data.scanned);
+      output.appendChild(
+        el("div", {
+          class: "text-muted",
+          text: (template || "%1$s / %2$s")
+            .replaceAll("%1$s", data.matched)
+            .replaceAll("%2$s", data.scanned),
+        }),
+      );
 
-      if (data.titles.length) {
-        output.appendChild(
-          el("div", { class: "text-muted" }, data.titles.join(", ")),
+      const items = data.items || [];
+
+      if (!items.length) return;
+
+      const inline = el("div", { class: "mt-1" });
+      items.slice(0, 5).forEach((item, index) => {
+        if (index) inline.appendChild(document.createTextNode(", "));
+        inline.appendChild(this.previewItemLink(item, data.extension));
+      });
+
+      output.appendChild(inline);
+
+      if (data.matched > 5) {
+        const showAll = el("button", {
+          type: "button",
+          class: "btn btn-link btn-sm p-0 ms-1",
+          text: (text.previewShowAll || "Show all %s").replaceAll(
+            "%s",
+            data.matched,
+          ),
+        });
+
+        showAll.addEventListener("click", () =>
+          this.openPreviewList(data, text),
+        );
+        inline.appendChild(document.createTextNode(" "));
+        inline.appendChild(showAll);
+      }
+    }
+
+    // A title links to the item's own editor when the workflow extension names both a component
+    // and a view. Anything else stays plain text rather than guessing a route that would 404.
+    previewItemLink(item, extension) {
+      const [component, view] = String(extension || "").split(".");
+
+      if (!component || !view) {
+        return el("span", { text: item.title });
+      }
+
+      return el("a", {
+        href: `index.php?option=${component}&task=${view}.edit&id=${item.id}`,
+        target: "_blank",
+        rel: "noopener",
+        text: item.title,
+      });
+    }
+
+    openPreviewList(data, text) {
+      const items = data.items || [];
+      const pageSize = 20;
+      const lastPage = Math.max(0, Math.ceil(items.length / pageSize) - 1);
+      let page = 0;
+
+      const list = el("ul", { class: "list-unstyled mb-0" });
+      const range = el("span", { class: "small text-muted" });
+
+      const previous = el("button", {
+        type: "button",
+        class: "btn btn-sm btn-secondary",
+        text: text.previous || "Previous",
+      });
+
+      const next = el("button", {
+        type: "button",
+        class: "btn btn-sm btn-secondary",
+        text: text.next || "Next",
+      });
+
+      const renderPage = () => {
+        const from = page * pageSize;
+        const shown = items.slice(from, from + pageSize);
+
+        list.textContent = "";
+
+        shown.forEach((item) => {
+          list.appendChild(
+            el(
+              "li",
+              { class: "mb-1" },
+              this.previewItemLink(item, data.extension),
+            ),
+          );
+        });
+
+        range.textContent = (text.previewListRange || "%1$s to %2$s of %3$s")
+          .replaceAll("%1$s", from + 1)
+          .replaceAll("%2$s", from + shown.length)
+          .replaceAll("%3$s", items.length);
+
+        previous.disabled = page === 0;
+        next.disabled = page === lastPage;
+      };
+
+      previous.addEventListener("click", () => {
+        if (page === 0) return;
+        page -= 1;
+        renderPage();
+      });
+
+      next.addEventListener("click", () => {
+        if (page === lastPage) return;
+        page += 1;
+        renderPage();
+      });
+
+      renderPage();
+
+      const buttons = el("div", { class: "btn-group" }, previous, next);
+
+      // One page needs no controls, but the range still tells you how many there were.
+      buttons.hidden = lastPage === 0;
+
+      const body = el(
+        "div",
+        { class: "p-3" },
+        list,
+        el(
+          "div",
+          { class: "d-flex align-items-center justify-content-between mt-3" },
+          range,
+          buttons,
+        ),
+      );
+
+      // Only reachable if the listed cap is set below the scan cap.
+      if (data.matched > items.length) {
+        body.appendChild(
+          el("p", {
+            class: "small text-muted mt-2 mb-0",
+            text: (
+              text.previewListTrimmed || "Showing the first %s."
+            ).replaceAll("%s", items.length),
+          }),
         );
       }
+
+      const dialog = document.createElement("joomla-dialog");
+
+      dialog.popupType = "inline";
+      dialog.textHeader = text.previewListHeader || "";
+      dialog.textClose = text.close || "Close";
+      dialog.popupContent = body;
+      dialog.width = "600px";
+      dialog.height = "fit-content";
+
+      document.body.appendChild(dialog);
+      dialog.show();
     }
   }
 

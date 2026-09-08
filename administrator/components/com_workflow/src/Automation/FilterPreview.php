@@ -36,6 +36,15 @@ final class FilterPreview
     public const DEFAULT_LIMIT = 200;
 
     /**
+     * How many matched items are described back to the caller. The scan cap already bounds this in
+     * practice; it exists so raising the scan cap cannot quietly grow the payload with it.
+     *
+     * @var    integer
+     * @since  __DEPLOY_VERSION__
+     */
+    public const LISTED_LIMIT = 200;
+
+    /**
      * @var DatabaseInterface
      * @since __DEPLOY_VERSION__
      */
@@ -58,7 +67,7 @@ final class FilterPreview
      * @param   string|null  $filterJson    The expression as the builder currently has it.
      * @param   integer      $limit         How many items to examine at most.
      *
-     * @return  array{scanned:int, matched:int, titles:array<int,string>, capped:bool}
+     * @return  array{scanned:int, matched:int, items:array<int,array{id:int,title:string}>, extension:string, capped:bool}
      *
      * @throws  ConditionEvaluationException  When the expression cannot be read.
      *
@@ -107,11 +116,43 @@ final class FilterPreview
         }
 
         return [
-            'scanned' => \count($scanIds),
-            'matched' => \count($matchedIds),
-            'titles'  => array_values($itemStorage->titlesFor(\array_slice($matchedIds, 0, 10), $extension)),
-            'capped'  => \count($candidateIds) >= $limit,
+            'scanned'   => \count($scanIds),
+            'matched'   => \count($matchedIds),
+            'items'     => $this->describeMatches($itemStorage, $matchedIds, $extension),
+            'extension' => $extension,
+            'capped'    => \count($candidateIds) >= $limit,
         ];
+    }
+
+    /**
+     * Pairs each matched id with its title, so a caller can link to the item.
+     *
+     * An id with no title is kept and labelled with the id itself. The title comes from the
+     * extension's own table, so it goes missing when an item was deleted after the scan, and
+     * dropping the row would silently shorten the list.
+     *
+     * @param   ItemStorage  $itemStorage  Resolves titles for the extension.
+     * @param   int[]        $matchedIds   Every id that passed the filter.
+     * @param   string       $extension    The workflow extension.
+     *
+     * @return  array<int, array{id:int, title:string}>
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function describeMatches(ItemStorage $itemStorage, array $matchedIds, string $extension): array
+    {
+        $listedIds = \array_slice($matchedIds, 0, self::LISTED_LIMIT);
+        $titles    = $itemStorage->titlesFor($listedIds, $extension);
+        $described = [];
+
+        foreach ($listedIds as $itemId) {
+            $described[] = [
+                'id'    => $itemId,
+                'title' => $titles[$itemId] ?? (string) $itemId,
+            ];
+        }
+
+        return $described;
     }
 
     /**

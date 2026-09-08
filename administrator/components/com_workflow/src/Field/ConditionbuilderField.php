@@ -319,6 +319,13 @@ class ConditionbuilderField extends FormField
             'previewResult'   => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_RESULT'),
             'previewCapped'   => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_CAPPED'),
             'previewEmpty'    => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_EMPTY'),
+            'previewShowAll'   => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_SHOW_ALL'),
+            'previewListHeader' => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_LIST_HEADER'),
+            'previewListTrimmed' => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_LIST_TRIMMED'),
+            'previewListRange'   => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_LIST_RANGE'),
+            'previous'           => Text::_('JPREVIOUS'),
+            'next'               => Text::_('JNEXT'),
+            'close'            => Text::_('JCLOSE'),
         ];
     }
 

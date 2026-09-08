@@ -23,7 +23,7 @@
       "name": "com_workflow.condition-builder",
       "type": "script",
       "uri": "com_workflow/condition-builder.js",
-      "dependencies": ["core"],
+      "dependencies": ["core", "joomla.dialog"],
       "attributes": {
         "defer": true
       }
