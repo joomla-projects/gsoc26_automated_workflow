@@ -406,7 +406,7 @@ class TransitionModel extends AdminModel
         // save, because a filtered picker is only HTML and the field can still be posted directly.
         $user = $this->getCurrentUser();
 
-        if (!$user->authorise('core.admin', $extension)) {
+        if (!$user->authorise('core.admin')) {
             $reachable = $this->groupsWithNoMorePermission(Access::getGroupsByUser((int) $user->id, false));
 
             // 0 is not a real group id, so an account somehow in no groups at all sees nobody
@@ -628,20 +628,23 @@ class TransitionModel extends AdminModel
             return true;
         }
 
-        $parts     = explode('.', (string) Factory::getApplication()->getInput()->get('extension'));
-        $extension = array_shift($parts);
-
-        if ($user->authorise('core.admin', $extension)) {
+        if ($user->authorise('core.admin')) {
             return true;
         }
 
-        // Normally redundant: a child inherits its parent's permissions, so anything an ancestor
-        // group holds, this editor holds too, and there would be nothing to escalate to. An
-        // explicit Deny breaks that.
+        // Two separate ways a candidate can outrank the editor. A Super User is never a legitimate
+        // target for anyone who is not one. 
+        $parts     = explode('.', (string) Factory::getApplication()->getInput()->get('extension'));
+        $extension = array_shift($parts);
         $candidate = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($candidateUserId);
 
-        if ((int) $candidate->id === $candidateUserId && $candidate->authorise('core.admin', $extension)) {
-            return false;
+        if ((int) $candidate->id === $candidateUserId) {
+            $candidateOutranksEditor = $candidate->authorise('core.admin')
+                || ($candidate->authorise('core.admin', $extension) && !$user->authorise('core.admin', $extension));
+
+            if ($candidateOutranksEditor) {
+                return false;
+            }
         }
 
         $candidateGroups = Access::getGroupsByUser($candidateUserId, false);
