@@ -165,6 +165,14 @@
     sync() {
       const serialised = this.nodeToJson(this.tree);
       this.input.value = serialised ? JSON.stringify(serialised) : "";
+
+      // Any edit makes a previous answer describe an expression that no longer exists.
+      const output = this.root.querySelector('[data-role="preview-output"]');
+
+      if (output) {
+        output.className = "w-100 small";
+        output.textContent = "";
+      }
     }
 
     // ----- node factories -----
@@ -242,6 +250,11 @@
           this.pendingAdd = null;
         }
         this.render();
+        return;
+      }
+
+      if (action === "preview") {
+        this.runPreview();
         return;
       }
 
@@ -333,7 +346,10 @@
           el(
             "div",
             { class: "cb-expression-head" },
-            el("span", { class: "cb-chip cb-chip-expression", text: text.expression }),
+            el("span", {
+              class: "cb-chip cb-chip-expression",
+              text: text.expression,
+            }),
             this.renderNot(node),
             el("button", {
               type: "button",
@@ -451,9 +467,9 @@
         );
       }
 
-      return el(
+      const addArea = el(
         "div",
-        { class: "cb-add" },
+        { class: "cb-add flex-wrap align-items-center" },
         el(
           "button",
           {
@@ -473,6 +489,27 @@
           "+ " + text.addExpression,
         ),
       );
+
+      // Filter builder only, top level only, and only once there is something to ask about:
+      // with no checks the empty message already says the rule matches everything.
+      if (this.config.preview && path === "" && this.tree.items.length > 0) {
+        addArea.appendChild(
+          el(
+            "button",
+            {
+              type: "button",
+              class: "btn btn-sm btn-secondary",
+              "data-action": "preview",
+            },
+            text.preview,
+          ),
+        );
+        addArea.appendChild(
+          el("div", { class: "w-100 small", "data-role": "preview-output" }),
+        );
+      }
+
+      return addArea;
     }
 
     renderCheck(node, path) {
@@ -548,7 +585,10 @@
           type: type,
           class: "form-control",
           "data-role": "value",
-          value: node.value === null || node.value === undefined ? "" : String(node.value),
+          value:
+            node.value === null || node.value === undefined
+              ? ""
+              : String(node.value),
         });
       }
 
@@ -587,6 +627,229 @@
         return fancy;
       }
       return select;
+    }
+
+    // ----- filter preview -----
+
+    async runPreview() {
+      const preview = this.config.preview;
+      const text = this.config.text || {};
+      const output = this.root.querySelector('[data-role="preview-output"]');
+      const button = this.root.querySelector('[data-action="preview"]');
+
+      if (!output) return;
+
+      if (button) button.disabled = true;
+      output.className = "w-100 small";
+      output.textContent = "";
+      output.appendChild(
+        el("div", { class: "text-muted", text: text.previewRunning || "" }),
+      );
+
+      const body = new FormData();
+      body.append("extension", preview.extension);
+      body.append("workflow_id", preview.workflowId);
+      body.append("transition_id", preview.transitionId);
+      body.append("item_filter", this.input.value);
+      body.append(preview.token, "1");
+
+      try {
+        const response = await fetch(preview.url, {
+          method: "POST",
+          body,
+        });
+
+        if (!response.ok) {
+          throw new Error(`${response.status} ${response.statusText}`);
+        }
+
+        const payload = await response.json();
+
+        if (!payload.success) {
+          output.className = "w-100 small text-danger";
+          output.textContent = payload.message || "";
+          return;
+        }
+
+        this.showPreviewResult(output, payload.data);
+      } catch (error) {
+        output.className = "w-100 small text-danger";
+        output.textContent = error.message;
+      } finally {
+        if (button) button.disabled = false;
+      }
+    }
+
+    showPreviewResult(output, data) {
+      const text = this.config.text || {};
+
+      output.textContent = "";
+
+      if (!data.scanned) {
+        output.appendChild(
+          el("div", { class: "text-muted", text: text.previewEmpty || "" }),
+        );
+        return;
+      }
+
+      const template = data.capped ? text.previewCapped : text.previewResult;
+
+      output.appendChild(
+        el("div", {
+          class: "text-muted",
+          text: (template || "%1$s / %2$s")
+            .replaceAll("%1$s", data.matched)
+            .replaceAll("%2$s", data.scanned),
+        }),
+      );
+
+      const items = data.items || [];
+
+      if (!items.length) return;
+
+      const inline = el("div", { class: "mt-1" });
+      items.slice(0, 5).forEach((item, index) => {
+        if (index) inline.appendChild(document.createTextNode(", "));
+        inline.appendChild(this.previewItemLink(item, data.extension));
+      });
+
+      output.appendChild(inline);
+
+      if (data.matched > 5) {
+        const showAll = el("button", {
+          type: "button",
+          class: "btn btn-link btn-sm p-0 ms-1",
+          text: (text.previewShowAll || "Show all %s").replaceAll(
+            "%s",
+            data.matched,
+          ),
+        });
+
+        showAll.addEventListener("click", () =>
+          this.openPreviewList(data, text),
+        );
+        inline.appendChild(document.createTextNode(" "));
+        inline.appendChild(showAll);
+      }
+    }
+
+    // A title links to the item's own editor when the workflow extension names both a component
+    // and a view. Anything else stays plain text rather than guessing a route that would 404.
+    previewItemLink(item, extension) {
+      const [component, view] = String(extension || "").split(".");
+
+      if (!component || !view) {
+        return el("span", { text: item.title });
+      }
+
+      return el("a", {
+        href: `index.php?option=${component}&task=${view}.edit&id=${item.id}`,
+        target: "_blank",
+        rel: "noopener",
+        text: item.title,
+      });
+    }
+
+    openPreviewList(data, text) {
+      const items = data.items || [];
+      const pageSize = 20;
+      const lastPage = Math.max(0, Math.ceil(items.length / pageSize) - 1);
+      let page = 0;
+
+      const list = el("ul", { class: "list-unstyled mb-0" });
+      const range = el("span", { class: "small text-muted" });
+
+      const previous = el("button", {
+        type: "button",
+        class: "btn btn-sm btn-secondary",
+        text: text.previous || "Previous",
+      });
+
+      const next = el("button", {
+        type: "button",
+        class: "btn btn-sm btn-secondary",
+        text: text.next || "Next",
+      });
+
+      const renderPage = () => {
+        const from = page * pageSize;
+        const shown = items.slice(from, from + pageSize);
+
+        list.textContent = "";
+
+        shown.forEach((item) => {
+          list.appendChild(
+            el(
+              "li",
+              { class: "mb-1" },
+              this.previewItemLink(item, data.extension),
+            ),
+          );
+        });
+
+        range.textContent = (text.previewListRange || "%1$s to %2$s of %3$s")
+          .replaceAll("%1$s", from + 1)
+          .replaceAll("%2$s", from + shown.length)
+          .replaceAll("%3$s", items.length);
+
+        previous.disabled = page === 0;
+        next.disabled = page === lastPage;
+      };
+
+      previous.addEventListener("click", () => {
+        if (page === 0) return;
+        page -= 1;
+        renderPage();
+      });
+
+      next.addEventListener("click", () => {
+        if (page === lastPage) return;
+        page += 1;
+        renderPage();
+      });
+
+      renderPage();
+
+      const buttons = el("div", { class: "btn-group" }, previous, next);
+
+      // One page needs no controls, but the range still tells you how many there were.
+      buttons.hidden = lastPage === 0;
+
+      const body = el(
+        "div",
+        { class: "p-3" },
+        list,
+        el(
+          "div",
+          { class: "d-flex align-items-center justify-content-between mt-3" },
+          range,
+          buttons,
+        ),
+      );
+
+      // Only reachable if the listed cap is set below the scan cap.
+      if (data.matched > items.length) {
+        body.appendChild(
+          el("p", {
+            class: "small text-muted mt-2 mb-0",
+            text: (
+              text.previewListTrimmed || "Showing the first %s."
+            ).replaceAll("%s", items.length),
+          }),
+        );
+      }
+
+      const dialog = document.createElement("joomla-dialog");
+
+      dialog.popupType = "inline";
+      dialog.textHeader = text.previewListHeader || "";
+      dialog.textClose = text.close || "Close";
+      dialog.popupContent = body;
+      dialog.width = "600px";
+      dialog.height = "fit-content";
+
+      document.body.appendChild(dialog);
+      dialog.show();
     }
   }
 

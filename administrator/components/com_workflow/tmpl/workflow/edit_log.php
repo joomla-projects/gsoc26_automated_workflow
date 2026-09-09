@@ -21,7 +21,7 @@ if (empty($this->automationLog)) : ?>
         <span class="icon-info-circle" aria-hidden="true"></span>
         <?php echo Text::_('COM_WORKFLOW_LOG_EMPTY'); ?>
     </div>
-    <?php
+<?php
     return;
 endif;
 ?>
@@ -46,7 +46,7 @@ endif;
                 : '';
             $itemTitle      = (string) ($entry->item_title ?? '');
             $itemLabel      = $itemTitle !== '' ? $itemTitle : (string) (int) $entry->item_id;
-            ?>
+        ?>
             <tr>
                 <td><?php echo HTMLHelper::_('date', $entry->executed_at, Text::_('DATE_FORMAT_LC2')); ?></td>
                 <td>
@@ -59,7 +59,20 @@ endif;
                         <div class="small text-muted"><?php echo Text::sprintf('COM_WORKFLOW_LOGS_ITEM_ID_INLINE', (int) $entry->item_id); ?></div>
                     <?php endif; ?>
                 </td>
-                <td><?php echo $this->escape(Text::_((string) $entry->transition_title)); ?></td>
+                <td>
+                    <?php
+                    // No permission check: reaching this tab already required core.edit on the
+                    // workflow these transitions belong to.
+                    $transitionEdit = Route::_(
+                        'index.php?option=com_workflow&task=transition.edit&id=' . (int) $entry->transition_id
+                            . '&workflow_id=' . (int) $entry->workflow_id
+                            . '&extension=' . $this->escape((string) $entry->extension)
+                    );
+                    ?>
+                    <a href="<?php echo $transitionEdit; ?>">
+                        <?php echo $this->escape(Text::_((string) $entry->transition_title)); ?>
+                    </a>
+                </td>
                 <td>
                     <span class="badge bg-secondary"><?php echo $this->escape(Text::_((string) $entry->from_stage)); ?></span>
                     <span class="icon-arrow-right icon-fw" aria-hidden="true"></span>

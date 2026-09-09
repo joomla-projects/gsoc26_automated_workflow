@@ -19,6 +19,7 @@ use Joomla\CMS\Factory;
 use Joomla\CMS\Form\FormField;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Plugin\PluginHelper;
+use Joomla\CMS\Session\Session;
 use Joomla\Component\Workflow\Administrator\Automation\BuiltinConditionFields;
 use Joomla\Database\DatabaseInterface;
 use Joomla\Database\ParameterType;
@@ -81,6 +82,7 @@ class ConditionbuilderField extends FormField
             'valueTypes'   => $this->getValueTypes($availableFields),
             'valueOptions' => $this->getValueChoices($availableFields),
             'text'         => $this->getInterfaceText(),
+            'preview'      => $this->getPreviewConfig(),
         ]);
 
         return '<div class="condition-builder" data-condition-builder data-config="'
@@ -299,19 +301,59 @@ class ConditionbuilderField extends FormField
             ? 'COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_FILTER'
             : 'COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_CONDITION';
         return [
-            'addCheck'        => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_CHECK'),
-            'addExpression'   => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_EXPRESSION'),
-            'remove'          => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_REMOVE'),
-            'check'           => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_CHECK'),
-            'expression'      => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EXPRESSION'),
-            'negate'          => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_NEGATE'),
-            'joinWith'        => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_JOIN_WITH'),
-            'opAnd'           => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_OP_AND'),
-            'opOr'            => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_OP_OR'),
-            'cancel'          => Text::_('JCANCEL'),
-            'empty'           => Text::_($emptyKey),
-            'placeholder'     => Text::_('JGLOBAL_TYPE_OR_SELECT_SOME_OPTIONS'),
-            'emptyExpression' => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_EXPRESSION'),
+            'addCheck'           => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_CHECK'),
+            'addExpression'      => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_EXPRESSION'),
+            'remove'             => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_REMOVE'),
+            'check'              => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_CHECK'),
+            'expression'         => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EXPRESSION'),
+            'negate'             => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_NEGATE'),
+            'joinWith'           => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_JOIN_WITH'),
+            'opAnd'              => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_OP_AND'),
+            'opOr'               => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_OP_OR'),
+            'cancel'             => Text::_('JCANCEL'),
+            'empty'              => Text::_($emptyKey),
+            'placeholder'        => Text::_('JGLOBAL_TYPE_OR_SELECT_SOME_OPTIONS'),
+            'emptyExpression'    => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_EXPRESSION'),
+            'preview'            => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_BUTTON'),
+            'previewRunning'     => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_RUNNING'),
+            'previewResult'      => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_RESULT'),
+            'previewCapped'      => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_CAPPED'),
+            'previewEmpty'       => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_EMPTY'),
+            'previewShowAll'     => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_SHOW_ALL'),
+            'previewListHeader'  => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_LIST_HEADER'),
+            'previewListTrimmed' => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_LIST_TRIMMED'),
+            'previewListRange'   => Text::_('COM_WORKFLOW_AUTOMATION_PREVIEW_LIST_RANGE'),
+            'previous'           => Text::_('JPREVIOUS'),
+            'next'               => Text::_('JNEXT'),
+            'close'              => Text::_('JCLOSE'),
+        ];
+    }
+
+    /**
+     * What the browser needs to ask the server which items this filter matches.
+     *
+     * Null for the condition field: "which items match" is a question about the
+     * filter, and a condition answers "when", which would flip depending on the day
+     * it was asked.
+     *
+     * @return array|null
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function getPreviewConfig(): ?array
+    {
+        if ((string) $this->element['mode'] !== 'filter') {
+            return null;
+        }
+
+        $input = Factory::getApplication()->getInput();
+
+        return [
+            'url'          => 'index.php?option=com_workflow&task=transition.previewFilter',
+            'extension'    => $input->getCmd('extension'),
+            'workflowId'   => $input->getInt('workflow_id'),
+            'transitionId' => $input->getInt('id'),
+            'token'        => Session::getFormToken(),
         ];
     }
 }
