@@ -24,6 +24,7 @@ $wa->useScript('table.columns');
 $listOrder = $this->escape($this->state->get('list.ordering'));
 $listDirn  = $this->escape($this->state->get('list.direction'));
 $extension = $this->escape((string) $this->state->get('filter.extension'));
+$user      = $this->getCurrentUser();
 ?>
 <form action="<?php echo Route::_('index.php?option=com_workflow&view=logs&extension=' . $extension); ?>" method="post" name="adminForm" id="adminForm">
     <div class="row">
@@ -77,7 +78,28 @@ $extension = $this->escape((string) $this->state->get('filter.extension'));
                                             <div class="small text-muted"><?php echo Text::sprintf('COM_WORKFLOW_LOGS_ITEM_ID_INLINE', (int) $item->item_id); ?></div>
                                         <?php endif; ?>
                                     </td>
-                                    <td><?php echo $item->transition_title ? $this->escape(Text::_($item->transition_title)) : (int) $item->transition_id; ?></td>
+                                    <td>
+                                        <?php
+                                        $transitionLabel = $item->transition_title
+                                            ? $this->escape(Text::_($item->transition_title))
+                                            : (string) (int) $item->transition_id;
+
+                                        // A failed row is usually read in order to go and fix the
+                                        // rule behind it, so the transition is the useful link.
+                                        $transitionEdit = $user->authorise('core.edit', $parts[0] . '.transition.' . (int) $item->transition_id)
+                                            ? Route::_(
+                                                'index.php?option=com_workflow&task=transition.edit&id=' . (int) $item->transition_id
+                                                . '&workflow_id=' . (int) $item->workflow_id
+                                                . '&extension=' . $this->escape((string) $item->extension)
+                                            )
+                                            : '';
+                                        ?>
+                                        <?php if ($transitionEdit) : ?>
+                                            <a href="<?php echo $transitionEdit; ?>"><?php echo $transitionLabel; ?></a>
+                                        <?php else : ?>
+                                            <?php echo $transitionLabel; ?>
+                                        <?php endif; ?>
+                                    </td>
                                     <td>
                                         <?php echo $item->from_stage ? $this->escape(Text::_($item->from_stage)) : (int) $item->from_stage_id; ?>
                                         <span aria-hidden="true">&#8594;</span>

@@ -98,11 +98,13 @@ class WorkflowModel extends AdminModel
             ->select(
                 [
                     $db->quoteName('l.item_id'),
+                    $db->quoteName('l.transition_id'),
                     $db->quoteName('l.extension'),
                     $db->quoteName('l.exit_code'),
                     $db->quoteName('l.note'),
                     $db->quoteName('l.executed_at'),
                     $db->quoteName('t.title', 'transition_title'),
+                    $db->quoteName('t.workflow_id'),
                     $db->quoteName('f_stage.title', 'from_stage'),
                     $db->quoteName('t_stage.title', 'to_stage'),
                     $db->quoteName('u.name', 'run_as_name'),

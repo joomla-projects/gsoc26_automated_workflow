@@ -81,6 +81,7 @@ class LogsModel extends ListModel
                 $db->quoteName('l.item_id'),
                 $db->quoteName('l.extension'),
                 $db->quoteName('l.transition_id'),
+                $db->quoteName('t.workflow_id'),
                 $db->quoteName('l.from_stage_id'),
                 $db->quoteName('l.to_stage_id'),
                 $db->quoteName('l.run_as_user_id'),
