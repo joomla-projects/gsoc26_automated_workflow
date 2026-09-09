@@ -49,8 +49,29 @@ final class ConditionEvaluator
      */
     public function evaluate(?string $expressionJson, callable $resolveField): bool
     {
+        $decodedTree = $this->decode($expressionJson);
+
+        return $decodedTree === null || $this->evaluateNode($decodedTree, $resolveField);
+    }
+
+    /**
+     * Reads an expression into a tree, or null when there is no expression at all.
+     *
+     * Separate from evaluate() so a caller running over many items can parse once instead of
+     * once per item, and so an unreadable expression is rejected before any other work.
+     *
+     * @param   string|null  $expressionJson  The stored expression.
+     *
+     * @return  array|null
+     *
+     * @throws  ConditionEvaluationException
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function decode(?string $expressionJson): ?array
+    {
         if ($expressionJson === null || trim($expressionJson) === '') {
-            return true;
+            return null;
         }
 
         $decodedTree = json_decode($expressionJson, true);
@@ -59,7 +80,7 @@ final class ConditionEvaluator
             throw new ConditionEvaluationException('The stored condition is not valid JSON: ' . json_last_error_msg());
         }
 
-        return $this->evaluateNode($decodedTree, $resolveField);
+        return $decodedTree;
     }
 
     /**
