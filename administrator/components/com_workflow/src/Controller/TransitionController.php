@@ -267,10 +267,12 @@ class TransitionController extends FormController
             // item titles out of a transition in a workflow they cannot.
             $owningParts = explode('.', (string) $transition->extension);
 
-            if (!$this->app->getIdentity()->authorise(
-                'core.edit',
-                array_shift($owningParts) . '.workflow.' . (int) $transition->workflow_id
-            )) {
+            if (
+                !$this->app->getIdentity()->authorise(
+                    'core.edit',
+                    array_shift($owningParts) . '.workflow.' . (int) $transition->workflow_id
+                )
+            ) {
                 throw new NotAllowed(Text::_('JERROR_ALERTNOAUTHOR'), 403);
             }
 
