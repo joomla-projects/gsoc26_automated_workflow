@@ -16,6 +16,7 @@ use Joomla\CMS\Form\Form;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Log\Log;
 use Joomla\CMS\MVC\Model\AdminModel;
+use Joomla\Component\Workflow\Administrator\Automation\ItemStorage;
 use Joomla\Component\Workflow\Administrator\Automation\UpcomingTransitionsCalculator;
 use Joomla\Database\ParameterType;
 use Joomla\String\StringHelper;
@@ -135,7 +136,9 @@ class WorkflowModel extends AdminModel
             ->bind(':workflowId', $workflowId, ParameterType::INTEGER)
             ->order($db->quoteName('l.executed_at') . ' DESC');
 
-        return $db->setQuery($query, 0, $limit)->loadObjectList() ?: [];
+        $entries = $db->setQuery($query, 0, $limit)->loadObjectList() ?: [];
+
+        return (new ItemStorage($db))->annotateTitles($entries);
     }
 
     /**
@@ -377,8 +380,8 @@ class WorkflowModel extends AdminModel
             if (
                 $table->load(
                     [
-                    'default'   => '1',
-                    'extension' => $table->extension,
+                        'default'   => '1',
+                        'extension' => $table->extension,
                     ]
                 )
             ) {
