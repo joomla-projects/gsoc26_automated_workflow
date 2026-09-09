@@ -21,7 +21,7 @@ if (empty($this->automationLog)) : ?>
         <span class="icon-info-circle" aria-hidden="true"></span>
         <?php echo Text::_('COM_WORKFLOW_LOG_EMPTY'); ?>
     </div>
-<?php
+    <?php
     return;
 endif;
 ?>
@@ -46,7 +46,7 @@ endif;
                 : '';
             $itemTitle      = (string) ($entry->item_title ?? '');
             $itemLabel      = $itemTitle !== '' ? $itemTitle : (string) (int) $entry->item_id;
-        ?>
+            ?>
             <tr>
                 <td><?php echo HTMLHelper::_('date', $entry->executed_at, Text::_('DATE_FORMAT_LC2')); ?></td>
                 <td>
