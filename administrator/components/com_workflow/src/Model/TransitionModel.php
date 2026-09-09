@@ -149,7 +149,7 @@ class TransitionModel extends AdminModel
                     'automation_rules'   => $rule,
                 ];
             } else {
-                $item->automation = ['automation_enabled' => 0, 'run_as_user_id' => 0, 'automation_rules' => []];
+                $item->automation = ['automation_enabled' => 0, 'run_as_user_id' => (int) $this->getCurrentUser()->id, 'automation_rules' => []];
             }
         }
 
@@ -552,11 +552,13 @@ class TransitionModel extends AdminModel
         $app         = Factory::getApplication();
         $runAsUserId = (int) ($automationRule['run_as_user_id'] ?? 0);
 
-        // Non-blocking: a rule with no run-as user cannot execute.
+        // Refused rather than warned. A rule with no run-as user cannot execute, so saving one
+        // only defers the failure to the first scheduler run, where it surfaces as an email about
+        // a rule the administrator has already forgotten writing.
         if ($runAsUserId === 0) {
-            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_WARNING_NO_RUN_AS'), 'warning');
+            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_NO_RUN_AS'), 'error');
 
-            return true;
+            return false;
         }
 
         // Only a change is restricted. Someone editing a delay on a rule an administrator set up
