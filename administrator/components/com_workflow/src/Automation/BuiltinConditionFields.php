@@ -81,8 +81,10 @@ final class BuiltinConditionFields
             'day_of_week',
             Text::_('COM_WORKFLOW_AUTOMATION_FIELD_DAY_OF_WEEK'),
             WorkflowConditionFieldsEvent::SCOPE_MOMENT,
-            [WorkflowConditionFieldsEvent::OPERATOR_IN,
-            WorkflowConditionFieldsEvent::OPERATOR_NOT_IN],
+            [
+                WorkflowConditionFieldsEvent::OPERATOR_IN,
+                WorkflowConditionFieldsEvent::OPERATOR_NOT_IN,
+            ],
             WorkflowConditionFieldsEvent::VALUE_MULTISELECT,
             $this->getWeekdayOptions()
         );
@@ -91,10 +93,12 @@ final class BuiltinConditionFields
             'date',
             Text::_('COM_WORKFLOW_AUTOMATION_FIELD_DATE'),
             WorkflowConditionFieldsEvent::SCOPE_MOMENT,
-            [WorkflowConditionFieldsEvent::OPERATOR_AFTER,
-            WorkflowConditionFieldsEvent::OPERATOR_BEFORE,
-            WorkflowConditionFieldsEvent::OPERATOR_ON,
-            WorkflowConditionFieldsEvent::OPERATOR_NOT_ON],
+            [
+                WorkflowConditionFieldsEvent::OPERATOR_AFTER,
+                WorkflowConditionFieldsEvent::OPERATOR_BEFORE,
+                WorkflowConditionFieldsEvent::OPERATOR_ON,
+                WorkflowConditionFieldsEvent::OPERATOR_NOT_ON,
+            ],
             WorkflowConditionFieldsEvent::VALUE_DATE
         );
 
@@ -105,9 +109,11 @@ final class BuiltinConditionFields
                 'tag',
                 Text::_('COM_WORKFLOW_AUTOMATION_FIELD_TAG'),
                 WorkflowConditionFieldsEvent::SCOPE_ITEM,
-                [WorkflowConditionFieldsEvent::OPERATOR_HAS_ANY,
-                WorkflowConditionFieldsEvent::OPERATOR_HAS_ALL,
-                WorkflowConditionFieldsEvent::OPERATOR_HAS_NONE],
+                [
+                    WorkflowConditionFieldsEvent::OPERATOR_HAS_ANY,
+                    WorkflowConditionFieldsEvent::OPERATOR_HAS_ALL,
+                    WorkflowConditionFieldsEvent::OPERATOR_HAS_NONE,
+                ],
                 WorkflowConditionFieldsEvent::VALUE_MULTISELECT,
                 $this->getTagOptions()
             );
@@ -122,8 +128,10 @@ final class BuiltinConditionFields
                 'category',
                 Text::_('COM_WORKFLOW_AUTOMATION_FIELD_CATEGORY'),
                 WorkflowConditionFieldsEvent::SCOPE_ITEM,
-                [WorkflowConditionFieldsEvent::OPERATOR_IS,
-                WorkflowConditionFieldsEvent::OPERATOR_IS_NOT],
+                [
+                    WorkflowConditionFieldsEvent::OPERATOR_IS,
+                    WorkflowConditionFieldsEvent::OPERATOR_IS_NOT,
+                ],
                 WorkflowConditionFieldsEvent::VALUE_SELECT,
                 $this->getCategoryOptions($extension)
             );
@@ -134,9 +142,11 @@ final class BuiltinConditionFields
                 'author_group',
                 Text::_('COM_WORKFLOW_AUTOMATION_FIELD_AUTHOR_GROUP'),
                 WorkflowConditionFieldsEvent::SCOPE_ITEM,
-                [WorkflowConditionFieldsEvent::OPERATOR_HAS_ANY,
-                WorkflowConditionFieldsEvent::OPERATOR_HAS_ALL,
-                WorkflowConditionFieldsEvent::OPERATOR_HAS_NONE],
+                [
+                    WorkflowConditionFieldsEvent::OPERATOR_HAS_ANY,
+                    WorkflowConditionFieldsEvent::OPERATOR_HAS_ALL,
+                    WorkflowConditionFieldsEvent::OPERATOR_HAS_NONE,
+                ],
                 WorkflowConditionFieldsEvent::VALUE_SELECT,
                 $this->getUserGroupOptions()
             );
@@ -150,10 +160,45 @@ final class BuiltinConditionFields
                 // it filters on disagreeing.
                 Text::_('JGLOBAL_HITS'),
                 WorkflowConditionFieldsEvent::SCOPE_ITEM,
-                [WorkflowConditionFieldsEvent::OPERATOR_GREATER_THAN,
+                [
+                    WorkflowConditionFieldsEvent::OPERATOR_GREATER_THAN,
+                    WorkflowConditionFieldsEvent::OPERATOR_LESS_THAN,
+                    WorkflowConditionFieldsEvent::OPERATOR_IS,
+                    WorkflowConditionFieldsEvent::OPERATOR_IS_NOT,
+                ],
+                WorkflowConditionFieldsEvent::VALUE_NUMBER
+            );
+        }
+
+        // Measured from #__workflow_item_state.entered_at, the same column the delay counts from.
+        // "greater than" therefore overlaps the delay; the case the delay cannot express is an
+        // upper bound, "still here but not for long".
+        $fields['days_in_stage'] = $this->field(
+            'days_in_stage',
+            Text::_('COM_WORKFLOW_AUTOMATION_FIELD_DAYS_IN_STAGE'),
+            WorkflowConditionFieldsEvent::SCOPE_ITEM,
+            [
+                WorkflowConditionFieldsEvent::OPERATOR_GREATER_THAN,
                 WorkflowConditionFieldsEvent::OPERATOR_LESS_THAN,
                 WorkflowConditionFieldsEvent::OPERATOR_IS,
-                WorkflowConditionFieldsEvent::OPERATOR_IS_NOT],
+                WorkflowConditionFieldsEvent::OPERATOR_IS_NOT,
+            ],
+            WorkflowConditionFieldsEvent::VALUE_NUMBER
+        );
+
+        // A different clock from the delay: editing an item does not move it between stages, so a
+        // rule can wait on "nobody has touched this" without the delay ever resetting.
+        if ($this->itemTableHasColumn($extension, 'modified')) {
+            $fields['days_since_modified'] = $this->field(
+                'days_since_modified',
+                Text::_('COM_WORKFLOW_AUTOMATION_FIELD_DAYS_SINCE_MODIFIED'),
+                WorkflowConditionFieldsEvent::SCOPE_ITEM,
+                [
+                    WorkflowConditionFieldsEvent::OPERATOR_GREATER_THAN,
+                    WorkflowConditionFieldsEvent::OPERATOR_LESS_THAN,
+                    WorkflowConditionFieldsEvent::OPERATOR_IS,
+                    WorkflowConditionFieldsEvent::OPERATOR_IS_NOT,
+                ],
                 WorkflowConditionFieldsEvent::VALUE_NUMBER
             );
         }
@@ -201,6 +246,12 @@ final class BuiltinConditionFields
 
             case 'author_group':
                 return $this->loadAuthorGroupIds($itemIds, $extension);
+
+            case 'days_in_stage':
+                return $this->loadDaysInStage($itemIds, $extension, $when);
+
+            case 'days_since_modified':
+                return $this->loadDaysSinceModified($itemIds, $extension, $when);
         }
 
         return null;
@@ -303,6 +354,120 @@ final class BuiltinConditionFields
         }
 
         return $values;
+    }
+
+    /**
+     * How many whole days each item has been sitting in its current stage.
+     *
+     * Read from #__workflow_item_state, which is ours and always present, so unlike the item
+     * columns this needs no capability check. An item with no state row yet is 0 days old rather
+     * than absent, so a filter never silently skips it.
+     *
+     * @param   int[]      $itemIds    The items.
+     * @param   string     $extension  The workflow extension.
+     * @param   \DateTime  $when       The moment to measure against.
+     *
+     * @return  array<int, int>
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function loadDaysInStage(array $itemIds, string $extension, \DateTime $when): array
+    {
+        if ($itemIds === []) {
+            return [];
+        }
+
+        $db    = $this->database;
+        $query = $db->getQuery(true)
+            ->select($db->quoteName(['item_id', 'entered_at']))
+            ->from($db->quoteName('#__workflow_item_state'))
+            ->where($db->quoteName('extension') . ' = :extension')
+            ->whereIn($db->quoteName('item_id'), $itemIds)
+            ->bind(':extension', $extension);
+
+        $ages = array_fill_keys($itemIds, 0);
+
+        foreach ($db->setQuery($query)->loadAssocList() ?: [] as $row) {
+            $ages[(int) $row['item_id']] = $this->wholeDaysSince($row['entered_at'], $when);
+        }
+
+        return $ages;
+    }
+
+    /**
+     * How many whole days since each item was last edited.
+     *
+     * Falls back to the creation date when nothing has edited the item, because Joomla leaves
+     * modified null in that case. Reading that as zero would say a five year old untouched article
+     * was edited today, which is the opposite of what a staleness filter is asking.
+     *
+     * @param   int[]      $itemIds    The items.
+     * @param   string     $extension  The workflow extension.
+     * @param   \DateTime  $when       The moment to measure against.
+     *
+     * @return  array<int, int>
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function loadDaysSinceModified(array $itemIds, string $extension, \DateTime $when): array
+    {
+        $modified = $this->loadColumnPerItem($itemIds, $extension, 'modified', null);
+        $created  = $this->itemTableHasColumn($extension, 'created')
+            ? $this->loadColumnPerItem($itemIds, $extension, 'created', null)
+            : [];
+
+        $ages = [];
+
+        foreach ($itemIds as $itemId) {
+            $stamp = $modified[$itemId] ?? null;
+
+            if (!$this->isRealDate($stamp)) {
+                $stamp = $created[$itemId] ?? null;
+            }
+
+            $ages[$itemId] = $this->isRealDate($stamp) ? $this->wholeDaysSince($stamp, $when) : 0;
+        }
+
+        return $ages;
+    }
+
+    /**
+     * Whole days between a stored timestamp and a moment, never negative.
+     *
+     * Floored, so "7" covers everything from seven days to just under eight. A stamp in the future
+     * reads as 0 rather than a negative age, which would make "less than" quietly true for items a
+     * clock skew put ahead of now.
+     *
+     * @param   string     $stamp  A database timestamp, in UTC.
+     * @param   \DateTime  $when   The moment to measure against.
+     *
+     * @return  integer
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function wholeDaysSince(string $stamp, \DateTime $when): int
+    {
+        $then = date_create_immutable($stamp, new \DateTimeZone('UTC'));
+
+        if ($then === false) {
+            return 0;
+        }
+
+        return (int) max(0, floor(($when->getTimestamp() - $then->getTimestamp()) / 86400));
+    }
+
+    /**
+     * Whether a stored timestamp is a real date rather than null or a zero date.
+     *
+     * @param   mixed  $stamp  The stored value.
+     *
+     * @return  boolean
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function isRealDate($stamp): bool
+    {
+        return \is_string($stamp) && $stamp !== '' && strpos($stamp, '0000-00-00') !== 0;
     }
 
     /**
