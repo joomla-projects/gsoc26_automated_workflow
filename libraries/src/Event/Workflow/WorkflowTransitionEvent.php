@@ -54,4 +54,119 @@ class WorkflowTransitionEvent extends AbstractEvent
             $this->stopPropagation();
         }
     }
+
+    /**
+     * The following methods come in pairs for each event argument.
+     *
+     * onGet{Name}($value) — called internally by AbstractEvent::getArgument() to
+     * pre-process and type-cast the raw argument value before returning it. Must
+     * not call getArgument() itself to avoid infinite recursion.
+     *
+     * get{Name}() — the public typed getter for plugin and external code to call.
+     * Delegates to getArgument() which routes through the onGet pre-processor above.
+     */
+
+    /**
+     * Pre-process the pks argument.
+     *
+     * @param   mixed  $value  The raw argument value.
+     *
+     * @return  array
+     *
+     * @since   6.2.0
+     */
+    protected function onGetPks($value): array
+    {
+        return (array) $value;
+    }
+
+    /**
+     * Get the primary keys of the items being transitioned.
+     *
+     * @return  array
+     *
+     * @since   6.2.0
+     */
+    public function getPks(): array
+    {
+        return $this->getArgument('pks');
+    }
+
+    /**
+     * Pre-process the extension argument.
+     *
+     * @param   mixed  $value  The raw argument value.
+     *
+     * @return  string
+     *
+     * @since   6.2.0
+     */
+    protected function onGetExtension($value): string
+    {
+        return (string) $value;
+    }
+
+    /**
+     * Get the extension context (e.g. com_content.article).
+     *
+     * @return  string
+     *
+     * @since   6.2.0
+     */
+    public function getExtension(): string
+    {
+        return $this->getArgument('extension');
+    }
+
+    /**
+     * Pre-process the transition argument.
+     *
+     * @param   mixed  $value  The raw argument value.
+     *
+     * @return  object
+     *
+     * @since   6.2.0
+     */
+    protected function onGetTransition($value): object
+    {
+        return (object) $value;
+    }
+
+    /**
+     * Get the transition object being executed.
+     *
+     * @return  object
+     *
+     * @since   6.2.0
+     */
+    public function getTransition(): object
+    {
+        return $this->getArgument('transition');
+    }
+
+    /**
+     * Pre-process the triggeredBy argument.
+     *
+     * @param mixed $value The raw argument value
+     *
+     * @return string
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    protected function onGetTriggeredBy($value): string
+    {
+        return (string) ($value ?? 'manual');
+    }
+
+    /**
+     * Get the trigger source - 'manual' or 'automation'
+     *
+     * @return string
+     *
+     * @since 6.2.0
+     */
+    public function getTriggeredBy(): string
+    {
+        return $this->getArgument('triggeredBy');
+    }
 }
