@@ -90,6 +90,7 @@
                         <span
               v-if="data?.automated"
               class="icon icon-clock text-white ms-4 me-1"
+              :title="translate('COM_WORKFLOW_GRAPH_TRANSITION_AUTOMATED')"
               aria-hidden="true"
             />
             <span

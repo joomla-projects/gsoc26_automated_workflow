@@ -376,6 +376,7 @@ Joomla = window.Joomla || {};
         const clock = document.createElement("span");
         clock.className = "icon icon-clock me-1";
         clock.setAttribute("aria-hidden", "true");
+        clock.title = Joomla.Text._("COM_WORKFLOW_GRAPH_TRANSITION_AUTOMATED");
         labelDiv.appendChild(clock);
 
         const automatedLabel = document.createElement("span");
