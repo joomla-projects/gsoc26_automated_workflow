@@ -388,7 +388,9 @@ final class BuiltinConditionFields
         $ages = array_fill_keys($itemIds, 0);
 
         foreach ($db->setQuery($query)->loadAssocList() ?: [] as $row) {
-            $ages[(int) $row['item_id']] = $this->wholeDaysSince($row['entered_at'], $when);
+            if ($this->isRealDate($row['entered_at'])) {
+                $ages[(int) $row['item_id']] = $this->wholeDaysSince($row['entered_at'], $when);
+            }
         }
 
         return $ages;
