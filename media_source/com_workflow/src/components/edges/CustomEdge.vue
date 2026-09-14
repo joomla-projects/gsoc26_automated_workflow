@@ -87,9 +87,10 @@
           </nav>
 
           <div class="d-flex justify-content-around align-items-center p-1 pe-1 z-1 position-relative">
-                        <span
+            <span
               v-if="data?.automated"
               class="icon icon-clock text-white ms-4 me-1"
+              :title="translate('COM_WORKFLOW_GRAPH_TRANSITION_AUTOMATED')"
               aria-hidden="true"
             />
             <span
@@ -303,7 +304,8 @@ export default {
         if (this.$refs.textMeasurer) {
           const measuredWidth = this.$refs.textMeasurer.offsetWidth;
           const iconAllowance = this.data?.automated ? 20 : 0;
-          this.maxWidth = Math.min(measuredWidth + 50 + iconAllowance, 300);        }
+          this.maxWidth = Math.min(measuredWidth + 50 + iconAllowance, 300);
+        }
       });
     },
   },
