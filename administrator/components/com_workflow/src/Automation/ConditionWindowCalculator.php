@@ -19,19 +19,8 @@ use Joomla\Database\DatabaseInterface;
 /**
  * Works out when a rule's fire condition next opens its execution window.
  *
- * A delay or cron rule decides when a transition becomes *due*; its fire condition decides
- * when a due transition is *allowed* to run. So the moment a gated transition really fires is
- * the first moment, at or after the deadline, at which the condition holds. This class finds
- * that moment by asking the condition how it would evaluate at successive candidate times.
- *
- * That search is only tractable because fire conditions are restricted to moment properties
- * (day of week, date): they depend on the clock and nothing else, so the same item gives a
- * different answer purely as time passes. Item properties live in the rule's filter instead.
- *
- * Both moment fields change at most once per calendar day, so after testing the deadline
- * itself the search steps one UTC day at a time, and gives up after a year. Giving up is
- * reported as "no answer" rather than a guess: a condition such as a fixed past date can
- * never open again, and pretending otherwise would show a fire time that never arrives.
+ * Steps one UTC day at a time from the deadline, because the built-in moment checks change at
+ * most once a day. Gives up after HORIZON_DAYS.
  *
  * @since  __DEPLOY_VERSION__
  */
@@ -90,7 +79,6 @@ final class ConditionWindowCalculator
         int $itemId,
         string $extension
     ): ?\DateTime {
-        // No condition means no gate: the rule may fire the moment it is due.
         if ($conditionJson === null || trim($conditionJson) === '') {
             return $earliestExecutionTime;
         }
@@ -99,9 +87,7 @@ final class ConditionWindowCalculator
             return $earliestExecutionTime;
         }
 
-        // The deadline itself is blocked, so try the start of each following day. Midnight is
-        // the earliest moment of any day that qualifies, which keeps the answer the earliest
-        // correct one at day granularity.
+        // Midnight is the earliest moment of any day that qualifies.
         $candidate = (clone $earliestExecutionTime)->setTime(0, 0, 0)->modify('+1 day');
 
         for ($dayOffset = 0; $dayOffset < self::HORIZON_DAYS; $dayOffset++) {

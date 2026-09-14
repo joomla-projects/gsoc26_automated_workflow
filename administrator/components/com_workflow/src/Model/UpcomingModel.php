@@ -21,10 +21,6 @@ use Joomla\Component\Workflow\Administrator\Automation\UpcomingTransitionsCalcul
 /**
  * Model for the extension-wide upcoming automated transitions view.
  *
- * Nothing here is stored or paginated: the list is computed on the fly from the items
- * currently waiting on an automation, which is naturally a small set. Compare the automation
- * log, which is a growing history and therefore a paginated list model.
- *
  * @since  __DEPLOY_VERSION__
  */
 class UpcomingModel extends BaseDatabaseModel

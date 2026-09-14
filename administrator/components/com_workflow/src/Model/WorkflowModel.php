@@ -55,9 +55,6 @@ class WorkflowModel extends AdminModel
     /**
      * Returns this workflow's upcoming automated transitions, computed on the fly.
      *
-     * Delegates to the shared calculator so the editor, and later the article-level
-     * surfaces, all read the same result. An unsaved workflow (id 0) has none.
-     *
      * @param   integer  $workflowId  The workflow id.
      *
      * @return  \Joomla\Component\Workflow\Administrator\Automation\UpcomingTransition[]
@@ -77,9 +74,6 @@ class WorkflowModel extends AdminModel
 
     /**
      * Returns the most recent automation log entries for this workflow.
-     *
-     * The extension-wide log view owns searching and paging the full history; this is the
-     * recent slice shown beside the workflow it belongs to, so it is deliberately capped.
      *
      * @param   integer  $workflowId  The workflow id.
      * @param   integer  $limit       How many entries to return, newest first.

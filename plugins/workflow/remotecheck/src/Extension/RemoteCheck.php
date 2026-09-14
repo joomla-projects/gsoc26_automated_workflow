@@ -27,24 +27,9 @@ use Joomla\Http\HttpFactory;
 /**
  * Supplies a condition check whose answer lives outside Joomla.
  *
- * Everything the built-in checks do with a database query, this one does with an HTTP call to
- * a service the site configures, so a transition can be gated on an editorial system, a
- * compliance API or anything else the site already trusts. The condition contract has no
- * opinion about where an answer comes from: the builder, the scheduler and the
- * upcoming-transitions views treat this exactly like a tag.
- *
- * Three decisions here follow from the source being remote rather than local, and any other
- * check of this kind should make them the same way:
- *
- * 1. The check is declared SCOPE_ITEM. A moment check gets asked the same question at many
- *    future times while ConditionWindowCalculator searches for the next moment a rule could
- *    fire, up to a year ahead, which would turn one rule into hundreds of requests.
- * 2. Answers are cached, and the whole batch is fetched in one request. The resolver runs on
- *    admin page loads as well as in the scheduler, so an uncached call would put an external
- *    service in the way of the article list rendering.
- * 3. A failure returns nothing rather than a default. Omitting an item means "we could not
- *    find out", and the rule is skipped for it. Returning a 0 would mean "the service said
- *    no", and the item would transition on a guess.
+ * Declared SCOPE_ITEM, because a moment check is asked about many future times. Answers are
+ * cached and fetched in one request per batch. A failed request returns nothing, so the item
+ * is skipped rather than moved on a guess.
  *
  * @since  __DEPLOY_VERSION__
  */
@@ -106,12 +91,9 @@ final class RemoteCheck extends CMSPlugin implements SubscriberInterface, CacheC
             return;
         }
 
-        // The builder reads labels the moment it asks, which can be before this plugin's
-        // language file has been auto-loaded.
+        // The builder can ask before this plugin's language file has been auto-loaded.
         $this->loadLanguage();
 
-        // An unconfigured plugin cannot answer anything, so it offers nothing rather than
-        // appearing in the builder under a generic name and failing when a rule uses it.
         $label    = trim((string) $this->params->get('checklabel', ''));
         $endpoint = trim((string) $this->params->get('endpoint', ''));
 
@@ -150,9 +132,7 @@ final class RemoteCheck extends CMSPlugin implements SubscriberInterface, CacheC
             return;
         }
 
-        // Called even when the result is empty or partial. That is what tells com_workflow the
-        // check still exists and the answer is merely missing, rather than the extension that
-        // provides it having been uninstalled. The two produce very different error messages.
+        // Always called, even with no values, so the check counts as claimed.
         $event->setValues($this->flagsFor(array_map('intval', $event->getItemIds())));
     }
 
@@ -193,8 +173,6 @@ final class RemoteCheck extends CMSPlugin implements SubscriberInterface, CacheC
             return $flags;
         }
 
-        // Everything still unknown goes in one request. The event hands over the whole batch
-        // precisely so this can be a single call instead of one per item.
         foreach ($this->askService($unknown) as $itemId => $flag) {
             $this->memo[$itemId] = $flag;
             $flags[$itemId]      = $flag;
@@ -234,9 +212,6 @@ final class RemoteCheck extends CMSPlugin implements SubscriberInterface, CacheC
                 max(1, (int) $this->params->get('timeout', 5))
             );
         } catch (\Throwable $failure) {
-            // Catching Throwable rather than a specific exception is deliberate: a transport
-            // can fail in ways this plugin should not have to enumerate, and every one of them
-            // means the same thing here, which is that we do not know.
             $this->warn('the service could not be reached: ' . $failure->getMessage());
 
             return [];
@@ -259,8 +234,7 @@ final class RemoteCheck extends CMSPlugin implements SubscriberInterface, CacheC
         $flags = [];
 
         foreach ($decoded['flags'] as $itemId => $flag) {
-            // Only ids that were actually asked about are kept, so a confused or hostile
-            // service cannot supply an answer for an article this run never mentioned.
+            // Ignore ids that were not asked about, so the service cannot answer for other items.
             if (\in_array((int) $itemId, $itemIds, true)) {
                 $flags[(int) $itemId] = $flag ? '1' : '0';
             }

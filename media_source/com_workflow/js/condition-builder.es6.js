@@ -1,16 +1,10 @@
 /**
- * Automation condition builder.
- *
- * Renders one expression as a vertical list of rows, where every row is either a
- * check (field / operator / value) or a nested expression (a bracket). The AND/OR
- * joining two rows sits between them and is chosen per pair when the second row
- * is added. Reads its choices from a data-config blob the PHP field emits, and
- * serialises the expression to JSON in a hidden input on every change.
- *
- * Stored shape:
- *   check:      { "field": "...", "operator": "...", "value": ..., "not": true? }
- *   expression: { "items": [ ...rows ], "ops": [ "and"|"or", ... ], "not": true? }
- * ops always holds one entry fewer than items; evaluation runs top to bottom.
+ * @copyright  (C) 2026 Open Source Matters, Inc. <https://www.joomla.org>
+ * @license    GNU General Public License version 2 or later; see LICENSE.txt
+ */
+
+/**
+ * Builds the JSON expression stored by ConditionbuilderField. See ConditionEvaluator for its shape.
  */
 ((document) => {
   "use strict";
@@ -46,8 +40,7 @@
       this.config = JSON.parse(root.dataset.config || "{}");
       this.tree = this.deserialize(this.input.value);
 
-      // While adding a second row to a chain we pause on an AND/OR prompt.
-      // Holds { path, kind } while that prompt is showing, otherwise null.
+      // { path, kind } while the AND/OR prompt for a new row is showing, otherwise null.
       this.pendingAdd = null;
 
       this.ui = el("div", { class: "cb-ui" });
@@ -56,10 +49,8 @@
       root.addEventListener("click", (event) => this.onClick(event));
       root.addEventListener("change", (event) => this.onChange(event));
 
-      // A typed value otherwise only commits when the box loses focus, so a rule saved from
-      // the keyboard would store the value as it was before the last edit. Only inputs need
-      // this: a select already commits on change, and the multiselect is wrapped in a
-      // fancy-select that fires its own events.
+      // Without this a typed value only commits on blur, so saving from the keyboard would store
+      // the value from before the last edit.
       root.addEventListener("input", (event) => {
         if (
           event.target.tagName === "INPUT" &&
@@ -72,8 +63,6 @@
       this.render();
     }
 
-    // ----- model <-> stored json -----
-
     deserialize(jsonString) {
       let parsed = null;
       try {
@@ -84,8 +73,7 @@
       if (!parsed || typeof parsed !== "object") {
         return this.emptyChain();
       }
-      // The old format stored { op, children }. It is not migrated; the rule
-      // must be rebuilt. Warn so the disappearance is explained, never silent.
+      // { op, children } is an old development format. Warn rather than drop it silently.
       if (parsed.op !== undefined || parsed.children !== undefined) {
         console.warn(
           "[condition-builder] Discarding a condition stored in the old group format; rebuild and save it.",
@@ -139,8 +127,7 @@
         return json;
       }
 
-      // Serialise the rows, dropping incomplete ones together with the
-      // operator that would have joined them.
+      // Incomplete rows are dropped together with the operator that would have joined them.
       const items = [];
       const ops = [];
 
@@ -175,8 +162,6 @@
       }
     }
 
-    // ----- node factories -----
-
     emptyChain() {
       return { type: "chain", not: false, items: [], ops: [] };
     }
@@ -201,8 +186,6 @@
       return (this.config.valueTypes || {})[field] === "multiselect" ? [] : "";
     }
 
-    // ----- locating nodes by path -----
-
     nodeAtPath(path) {
       if (!path) return this.tree;
       return path
@@ -224,8 +207,6 @@
       }
     }
 
-    // ----- events -----
-
     onClick(event) {
       const button = event.target.closest("[data-action]");
       if (!button || !this.root.contains(button)) return;
@@ -239,8 +220,6 @@
       if (action === "add-check" || action === "add-expression") {
         const kind = action === "add-check" ? "check" : "chain";
 
-        // The first row needs no connector. Any later row pauses on the
-        // AND/OR prompt so the operator is chosen before the row appears.
         if (chain.items.length >= 1) {
           this.pendingAdd = { path, kind };
         } else {
@@ -259,8 +238,6 @@
       }
 
       if (action === "choose-op") {
-        // The prompt was answered: record the connector, then add the row
-        // that was waiting on it.
         if (this.pendingAdd && this.pendingAdd.path === path) {
           chain.ops.push(
             button.getAttribute("data-op") === "or" ? "or" : "and",
@@ -327,8 +304,6 @@
       return target.value;
     }
 
-    // ----- rendering -----
-
     render() {
       this.ui.innerHTML = "";
       this.ui.appendChild(this.renderChain(this.tree, "", true));
@@ -340,8 +315,6 @@
       const parts = [];
 
       if (!isRoot) {
-        // A nested expression keeps its chrome: label, NOT and remove. The
-        // AND/OR joining rows never lives here, it sits between the rows.
         parts.push(
           el(
             "div",
@@ -368,7 +341,6 @@
 
       node.items.forEach((child, index) => {
         if (index > 0) {
-          // The connector between two rows, chosen per pair and editable.
           list.appendChild(
             el(
               "div",
@@ -428,8 +400,6 @@
     renderAddArea(path) {
       const text = this.config.text;
 
-      // While an add waits on the operator choice, the prompt replaces the
-      // add buttons so the connector is picked before the row appears.
       if (this.pendingAdd && this.pendingAdd.path === path) {
         return el(
           "div",
@@ -490,8 +460,6 @@
         ),
       );
 
-      // Filter builder only, top level only, and only once there is something to ask about:
-      // with no checks the empty message already says the rule matches everything.
       if (this.config.preview && path === "" && this.tree.items.length > 0) {
         addArea.appendChild(
           el(
@@ -577,9 +545,6 @@
     renderValue(node) {
       const type = (this.config.valueTypes || {})[node.field];
 
-      // Typed values: the check supplies no list to pick from, so the value is
-      // whatever the person writes. A number gets the numeric input so the
-      // browser offers the right keyboard and rejects letters.
       if (type === "date" || type === "text" || type === "number") {
         return el("input", {
           type: type,
@@ -628,8 +593,6 @@
       }
       return select;
     }
-
-    // ----- filter preview -----
 
     async runPreview() {
       const preview = this.config.preview;
@@ -733,8 +696,7 @@
       }
     }
 
-    // A title links to the item's own editor when the workflow extension names both a component
-    // and a view. Anything else stays plain text rather than guessing a route that would 404.
+    // Only link when the extension names both a component and a view, rather than guess a route.
     previewItemLink(item, extension) {
       const [component, view] = String(extension || "").split(".");
 
@@ -812,7 +774,6 @@
 
       const buttons = el("div", { class: "btn-group" }, previous, next);
 
-      // One page needs no controls, but the range still tells you how many there were.
       buttons.hidden = lastPage === 0;
 
       const body = el(

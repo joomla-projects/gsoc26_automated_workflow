@@ -26,10 +26,7 @@ use Joomla\Database\DatabaseInterface;
 /**
  * Read-only field that shows an item's next automated transition on its edit screen.
  *
- * Reads the item id and extension from the form it is attached to, asks the shared
- * calculator for that one item's next move, and renders a small Bootstrap card. Outputs
- * nothing when the item is unsaved or has no automated move pending, so it stays invisible
- * where it does not apply.
+ * Outputs nothing for an unsaved item or one with no automated move pending.
  *
  * @since  __DEPLOY_VERSION__
  */
@@ -85,9 +82,7 @@ class UpcomingtransitionField extends FormField
             'needs_attention' => '<span class="badge bg-danger">' . Text::_('COM_WORKFLOW_UPCOMING_STATUS_ATTENTION') . '</span>',
             'rule_error'      => '<span class="badge bg-warning text-dark">' . Text::_('COM_WORKFLOW_UPCOMING_STATUS_RULE_ERROR') . '</span>',
             'not_scheduled'   => '<span class="badge bg-secondary">' . Text::_('COM_WORKFLOW_UPCOMING_STATUS_NOT_SCHEDULED') . '</span>',
-            // Guarded rather than assumed. Every status that reaches here today carries a fire
-            // time, but this is the third place that has to know the whole list, and taking the
-            // edit screen down is a heavy price for a status someone forgot to add here.
+            // Guarded anyway, so a future status without a fire time cannot break the edit screen.
             default => $upcoming->firesAt === null
                 ? '<span class="badge bg-secondary">' . Text::_('COM_WORKFLOW_UPCOMING_STATUS_NOT_SCHEDULED') . '</span>'
                 : '<div>' . RelativeTime::until($upcoming->firesAt) . '</div>'
@@ -97,8 +92,7 @@ class UpcomingtransitionField extends FormField
                     : ''),
         };
 
-        // Shown whatever the status, for the same reason as in the Upcoming table: a stored
-        // fault can belong to a rule other than the one whose time is on display.
+        // Shown whatever the status: the fault may belong to another rule on this stage.
         if ($upcoming->failureReason !== '') {
             $fires .= '<div class="small text-warning-emphasis mt-1">'
                 . '<span class="icon-warning" aria-hidden="true"></span> '

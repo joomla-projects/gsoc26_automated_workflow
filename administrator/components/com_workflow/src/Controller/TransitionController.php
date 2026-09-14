@@ -262,9 +262,8 @@ class TransitionController extends FormController
                 throw new \InvalidArgumentException(Text::_('COM_WORKFLOW_PREVIEW_ERROR_NO_TRANSITION'));
             }
 
-            // The asset is built from the workflow the transition actually belongs to. Taking
-            // workflow_id from the request instead would let anyone able to edit one workflow read
-            // item titles out of a transition in a workflow they cannot.
+            // Checked against the workflow the transition belongs to, not the workflow_id in the
+            // request, which anyone could change.
             $owningParts = explode('.', (string) $transition->extension);
 
             if (
@@ -283,8 +282,7 @@ class TransitionController extends FormController
                 )
             );
         } catch (ConditionEvaluationException $invalidFilter) {
-            // A filter still being typed is normally incomplete, so this is an answer rather than
-            // a fault: no 500, and the message is what the builder shows next to the button.
+            // An incomplete filter is normal while typing, so this is an answer, not an error.
             echo new JsonResponse(null, $invalidFilter->getMessage(), true);
         } catch (NotAllowed $notAllowed) {
             $this->app->setHeader('status', 403, true);

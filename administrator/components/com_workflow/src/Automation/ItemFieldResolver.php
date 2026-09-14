@@ -23,17 +23,8 @@ use Joomla\Event\DispatcherInterface;
 /**
  * Resolves check values for the items a rule is being evaluated against.
  *
- * Joomla's own checks are answered by BuiltinConditionFields directly; anything else is put to
- * the workflow plugins through an event. This class does not know what any check means. Its job
- * is knowing how to ask, how to ask about many items at once, and how not to ask twice.
- *
- * Batching is lazy rather than eager: a caller announces which items it is about to evaluate,
- * and the first time any check is needed it is resolved for that whole set in one go. That
- * keeps a run at one round trip per check, without the caller having to work out in advance
- * which checks a stored rule happens to use.
- *
- * Everything is kept per extension, because an item id is only unique within its own: article 5
- * and contact 5 are different items that must not share an answer.
+ * Batched lazily: callers announce their items with preload(), and each check is resolved for
+ * the whole set the first time it is needed.
  *
  * @since  __DEPLOY_VERSION__
  */
@@ -43,7 +34,7 @@ final class ItemFieldResolver
      * The checks Joomla ships with. Held for the resolver's lifetime so its content type
      * lookups are cached across every check a run evaluates.
      *
-     * @var BuiltInConditionFields
+     * @var BuiltinConditionFields
      * @since __DEPLOY_VERSION__
      */
     private BuiltinConditionFields $builtinFields;
@@ -58,9 +49,7 @@ final class ItemFieldResolver
     private array $batchItemIds = [];
 
     /**
-     * Resolved values, keyed by extension, check and moment, then by item id. The moment is part
-     * of the key because a check that describes the clock gives a different answer at a different
-     * time, which is how the upcoming-transitions views ask about future moments.
+     * Resolved values, keyed by extension, check and moment, then by item id.
      *
      * @var    array<string, array<int, mixed>>
      * @since  __DEPLOY_VERSION__
@@ -68,9 +57,8 @@ final class ItemFieldResolver
     private array $resolved = [];
 
     /**
-     * Which items have already been asked about, keyed the same way as $resolved. A cached key
-     * does not mean every item is covered: a batch resolved earlier will not include an item
-     * that only came into play afterwards.
+     * Which items have already been asked about, keyed like $resolved. Needed because a key
+     * resolved earlier may not cover the items announced after it.
      *
      * @var    array<string, array<int, boolean>>
      * @since  __DEPLOY_VERSION__
@@ -89,9 +77,6 @@ final class ItemFieldResolver
 
     /**
      * Announces the items about to be evaluated, so checks can be resolved for the whole set.
-     *
-     * Nothing is fetched here. The work happens the first time a check is actually needed,
-     * which avoids loading checks that the stored rules never mention.
      *
      * @param   int[]   $itemIds    The content item ids.
      * @param   string  $extension  The workflow extension those ids belong to.
@@ -143,20 +128,15 @@ final class ItemFieldResolver
      */
     private function valueFor(string $fieldName, int $itemId, string $extension, ?\DateTime $evaluationTime)
     {
-        // The extension is part of the key because an item id is only unique within it. Without
-        // it, article 5 and contact 5 would share an answer.
         $cacheKey = $extension . '|' . $fieldName . '|'
             . ($evaluationTime ? $evaluationTime->getTimestamp() : 'now');
 
         $announced = $this->batchItemIds[$extension] ?? [];
 
         if (!isset($this->asked[$cacheKey][$itemId])) {
-            // Resolve for the announced batch when this item belongs to it, otherwise just for
-            // this one item, so single-item callers still work without preloading.
             $itemIds = \in_array($itemId, $announced, true) ? $announced : [$itemId];
 
-            // Merge rather than replace: an earlier call may have resolved other items under
-            // this same key, and those answers are still good.
+            // Merged, because an earlier batch under this key may hold other items' answers.
             $this->resolved[$cacheKey] = ($this->resolved[$cacheKey] ?? [])
                 + $this->resolveBatch($fieldName, $itemIds, $extension, $evaluationTime);
 
@@ -165,9 +145,8 @@ final class ItemFieldResolver
             }
         }
 
-        // The check exists but whatever provides it had no value for this item, which is not the
-        // same as an empty one. Comparing against a missing value would be a guess, so the item
-        // is reported and skipped instead. A remote source that timed out lands here.
+        // A missing value, for example from a remote check that timed out, is not an empty one.
+        // Comparing against it would be a guess, so the item is skipped instead.
         if (!\array_key_exists($itemId, $this->resolved[$cacheKey])) {
             throw new ConditionEvaluationException(\sprintf(
                 'Nothing could resolve a value for the "%s" check on item %s.%d.',
@@ -182,10 +161,6 @@ final class ItemFieldResolver
 
     /**
      * Resolves one check for a set of items, from Joomla's own checks or from a plugin.
-     *
-     * Built-in checks are answered directly, so a run that only uses them dispatches
-     * nothing. The event is a fallback for names com_workflow does not recognize, which also means
-     * a plugin cannot shadow a built-in and change what a saved rule means.
      *
      * @param string $fieldName The check.
      * @param int[] $itemIds The items.
@@ -206,8 +181,7 @@ final class ItemFieldResolver
     ): array {
         $builtinValues = $this->builtinFields->resolve($fieldName, $itemIds, $extension, $evaluationTime);
 
-        // Null means the name is not one of Joomla's own, so it is worth asking the plugins.
-        // An empty array means it is ours and we had no values, which is a different answer.
+        // Null means the check is not a built-in; an empty array is a built-in with no values.
         if ($builtinValues !== null) {
             return $builtinValues;
         }
@@ -243,14 +217,8 @@ final class ItemFieldResolver
             ]
         );
 
-        // From the container, not $app->getDispatcher(): that lives on EventAwareInterface,
-        // which is part of the 3.x compatibility layer and goes away in 7.0.
         Factory::getContainer()->get(DispatcherInterface::class)->dispatch($event->getName(), $event);
 
-        // Nobody claimed the check at all, so the rule refers to something this site no longer
-        // has. Kept separate from a provider that answered for no items, because that is a
-        // working extension having a bad day rather than a missing one, and sending someone to
-        // the plugin manager to look for a timeout wastes their afternoon.
         if (!$event->isAnswered()) {
             throw new ConditionEvaluationException(\sprintf(
                 'No installed extension provides the "%s" check that this rule uses on %s. '

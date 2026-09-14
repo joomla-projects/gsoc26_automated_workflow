@@ -19,17 +19,12 @@ use Joomla\CMS\Language\Text;
 /**
  * Formats how long until an automated transition fires, as a short translated phrase.
  *
- * Kept out of the engine and the value object so the three views share one wording and the
- * calculator stays free of language and presentation concerns.
- *
  * @since  __DEPLOY_VERSION__
  */
 final class RelativeTime
 {
     /**
      * Returns a translated "In X units" phrase for a future time, or "Due now" for a past one.
-     *
-     * Picks the largest sensible unit (minutes, hours, days, months) so the phrase stays short.
      *
      * @param \DateTime $target The moment to count down to (UTC).
      * @param \DateTime|null $now The reference now (UTC); defaults to the current time

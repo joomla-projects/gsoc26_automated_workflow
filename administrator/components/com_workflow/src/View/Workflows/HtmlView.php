@@ -153,8 +153,7 @@ class HtmlView extends BaseHtmlView
             $toolbar->addNew('workflow.add');
         }
 
-        // Gated on core.admin since these are audit views exposing failure details. Grouped in
-        // one dropdown so the two related views do not each claim toolbar width.
+        // core.admin only, because these views expose failure details.
         if ($canDo->get('core.admin')) {
             $extension = $this->extension . ($this->section ? '.' . $this->section : '');
 

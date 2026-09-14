@@ -56,17 +56,6 @@ class WorkflowTransitionEvent extends AbstractEvent
     }
 
     /**
-     * The following methods come in pairs for each event argument.
-     *
-     * onGet{Name}($value) — called internally by AbstractEvent::getArgument() to
-     * pre-process and type-cast the raw argument value before returning it. Must
-     * not call getArgument() itself to avoid infinite recursion.
-     *
-     * get{Name}() — the public typed getter for plugin and external code to call.
-     * Delegates to getArgument() which routes through the onGet pre-processor above.
-     */
-
-    /**
      * Pre-process the pks argument.
      *
      * @param   mixed  $value  The raw argument value.

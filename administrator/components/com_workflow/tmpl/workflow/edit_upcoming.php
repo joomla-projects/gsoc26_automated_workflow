@@ -14,7 +14,6 @@ use Joomla\CMS\Layout\LayoutHelper;
 
 /** @var \Joomla\Component\Workflow\Administrator\View\Workflow\HtmlView $this */
 
-// The workflow is already the context here, so the workflow column would repeat itself.
 echo LayoutHelper::render(
     'upcoming.table',
     ['items' => $this->upcomingTransitions, 'showWorkflow' => false],

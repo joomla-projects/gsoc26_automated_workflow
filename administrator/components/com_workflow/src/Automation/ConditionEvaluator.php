@@ -21,15 +21,8 @@ namespace Joomla\Component\Workflow\Administrator\Automation;
  *   check:      { "field": string, "operator": string, "value": mixed, "not": true? }
  *   expression: { "items": [ ...nodes ], "ops": [ "and"|"or", ... ], "not": true? }
  *
- * ops always holds exactly one connector fewer than items. Evaluation runs top to
- * bottom: the running result of the rows so far is combined with the next row
- * through the connector between them, so "A or B and C" means "(A or B) and C".
- * Nested expressions are the brackets.
- *
- * Field values are supplied by a resolver callback, so this class has no database
- * or Joomla dependency. An empty stored expression means "no restriction" and is
- * true; anything malformed throws a ConditionEvaluationException rather than
- * defaulting, so broken rules surface instead of silently passing or failing.
+ * Rows combine top to bottom with no AND/OR precedence, so "A or B and C" means
+ * "(A or B) and C". Nested expressions are the brackets. An empty expression is true.
  *
  * @since  __DEPLOY_VERSION__
  */
@@ -56,9 +49,6 @@ final class ConditionEvaluator
 
     /**
      * Reads an expression into a tree, or null when there is no expression at all.
-     *
-     * Separate from evaluate() so a caller running over many items can parse once instead of
-     * once per item, and so an unreadable expression is rejected before any other work.
      *
      * @param   string|null  $expressionJson  The stored expression.
      *
@@ -117,8 +107,7 @@ final class ConditionEvaluator
     /**
      * Evaluates an expression: its rows combined top to bottom through the connectors.
      *
-     * Every row is evaluated even when the running result is already decided, so a
-     * malformed row always surfaces instead of hiding behind short-circuiting.
+     * There is no short-circuiting, so a malformed row always surfaces.
      *
      * @param   array     $expressionNode  The expression node.
      * @param   callable  $resolveField    The field resolver.
@@ -201,9 +190,7 @@ final class ConditionEvaluator
     /**
      * Applies a single comparison operator.
      *
-     * Types are compared like for like: a list is never silently narrowed to its
-     * first element. Widening a single value into a one-element list (for the
-     * membership operators) is allowed because it loses nothing.
+     * A list is never narrowed to its first element, but a single value may widen to a list.
      *
      * @param   mixed   $actualValue    The item's value.
      * @param   string  $operatorName   The comparison operator.
@@ -296,9 +283,6 @@ final class ConditionEvaluator
     /**
      * Asserts a value is numeric and returns it as a float.
      *
-     * Floats compare both whole and fractional numbers, and the loss of precision only
-     * matters far beyond any quantity a content item carries.
-     *
      * @param   mixed   $value      The value to check.
      * @param   string  $fieldName  The field name, for error messages.
      *
@@ -316,8 +300,7 @@ final class ConditionEvaluator
             );
         }
 
-        // Guarding here rather than casting keeps a check on a field that turned out to hold
-        // text from quietly reading as zero and comparing true against every negative number.
+        // Not cast, because text would read as zero and quietly pass numeric comparisons.
         if (!is_numeric($value)) {
             throw new ConditionEvaluationException(
                 'The "' . $fieldName . '" check expected a number but got "' . var_export($value, true) . '".'

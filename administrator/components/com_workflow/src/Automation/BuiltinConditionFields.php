@@ -23,14 +23,8 @@ use Joomla\Database\DatabaseInterface;
 /**
  * The condition checks Joomla ships with.
  *
- * These are declared and resolved directly rather than through the workflow events, so a run
- * that only uses built-in checks dispatches nothing at all.
- *
- * This class enforces nothing on its own: it answers about the names it knows and returns null
- * for the rest. Its callers, ConditionbuilderField and ItemFieldResolver, ask here first and
- * only fall back to the events for a name it does not recognise. That order is what gives a
- * built-in precedence over a plugin declaring the same name, which matters because otherwise
- * installing an extension could silently change what an already-saved rule means.
+ * Asked before the workflow plugins, so a plugin cannot redefine a built-in check and change
+ * what an already-saved rule means.
  *
  * @since  __DEPLOY_VERSION__
  */
@@ -63,10 +57,6 @@ final class BuiltinConditionFields
 
     /**
      * The built-in checks available for an extension.
-     *
-     * Returns the same shape WorkflowConditionFieldsEvent::addField() produces, so
-     * the builder can merge these with whatever plugins declare without caring where
-     * each came from.
      *
      * @param string $extension The workflow extension, e.g com_content.article.
      *
@@ -102,8 +92,6 @@ final class BuiltinConditionFields
             WorkflowConditionFieldsEvent::VALUE_DATE
         );
 
-        // Tagging is shared: any extension registered as a content type can be
-        // tagged, so the check is offered whenever we can resolve that registration.
         if ($this->typeIdFor($extension) !== null) {
             $fields['tag'] = $this->field(
                 'tag',
@@ -119,10 +107,7 @@ final class BuiltinConditionFields
             );
         }
 
-        // Each check below reads one column out of the extension's own item table, so
-        // each is offered only where that column exists. Nothing is tied to a component name:
-        // banners get a category and an author but no hit counter because their table
-        // has no hits columns, while contacts and news feeds get all three.
+        // Each check below is offered only where the extension's own item table has its column.
         if ($this->itemTableHasColumn($extension, 'catid')) {
             $fields['category'] = $this->field(
                 'category',
@@ -155,9 +140,6 @@ final class BuiltinConditionFields
         if ($this->itemTableHasColumn($extension, 'hits')) {
             $fields['hits'] = $this->field(
                 'hits',
-                // Joomla's own word for this, used by the article list column and its
-                // sort options. A different one here would leave the filter and the column
-                // it filters on disagreeing.
                 Text::_('JGLOBAL_HITS'),
                 WorkflowConditionFieldsEvent::SCOPE_ITEM,
                 [
@@ -170,9 +152,6 @@ final class BuiltinConditionFields
             );
         }
 
-        // Measured from #__workflow_item_state.entered_at, the same column the delay counts from.
-        // "greater than" therefore overlaps the delay; the case the delay cannot express is an
-        // upper bound, "still here but not for long".
         $fields['days_in_stage'] = $this->field(
             'days_in_stage',
             Text::_('COM_WORKFLOW_AUTOMATION_FIELD_DAYS_IN_STAGE'),
@@ -186,8 +165,6 @@ final class BuiltinConditionFields
             WorkflowConditionFieldsEvent::VALUE_NUMBER
         );
 
-        // A different clock from the delay: editing an item does not move it between stages, so a
-        // rule can wait on "nobody has touched this" without the delay ever resetting.
         if ($this->itemTableHasColumn($extension, 'modified')) {
             $fields['days_since_modified'] = $this->field(
                 'days_since_modified',
@@ -214,8 +191,7 @@ final class BuiltinConditionFields
      * @param string $extension The workflow extension, e.g com_content.article
      * @param \DateTime|null $moment The moment clock-based checks should describe.
      *
-     * @return array<int, mixed>|null Values keyed by item id, or null when the name is not
-     * a built-in, which is the caller's signal to ask the plugins.
+     * @return array<int, mixed>|null Values keyed by item id, or null when the name is not a built-in.
      *
      * @since __DEPLOY_VERSION__
      */
@@ -275,9 +251,8 @@ final class BuiltinConditionFields
     /**
      * Tag ids per item, in one query.
      *
-     * The tag map's primary key starts with type_id and nothing indexes type_alias, so
-     * filtering by the aliases scans the whole table. Resolving the alias to its id in
-     * a subquery lets the primary key do the work, and subquery uses the alias index.
+     * Filters by type_id through a subquery, because the tag map's primary key starts with
+     * type_id and type_alias has no index.
      *
      * @param int[] $itemIds The items.
      * @param string $extension The workflow extension
@@ -305,8 +280,7 @@ final class BuiltinConditionFields
             ->whereIn($db->quoteName('content_item_id'), $itemIds)
             ->bind(':extension', $extension);
 
-        // Every item asked about gets an entry, so "no tags" is an empty list rather than a
-        // missing answer. The two mean different things to the evaluator.
+        // An item with no tags gets an empty list. A missing answer would be treated as an error.
         $values = array_fill_keys($itemIds, []);
 
         foreach ($db->setQuery($query)->loadObjectList() ?: [] as $row) {
@@ -318,11 +292,6 @@ final class BuiltinConditionFields
 
     /**
      * One column of the extension's own item table, per item, in one query.
-     *
-     * The table and its key column come from the content type registration, so this
-     * works for any extension rather than only com_content. An extension whose table
-     * lacks the column is answered with nothing, which matches declarations() never
-     * offering the check there.
      *
      * @param int[] $itemIds The items.
      * @param string $extension The workflow extension.
@@ -359,9 +328,7 @@ final class BuiltinConditionFields
     /**
      * How many whole days each item has been sitting in its current stage.
      *
-     * Read from #__workflow_item_state, which is ours and always present, so unlike the item
-     * columns this needs no capability check. An item with no state row yet is 0 days old rather
-     * than absent, so a filter never silently skips it.
+     * An item with no state row yet counts as 0 days, so a filter never silently skips it.
      *
      * @param   int[]      $itemIds    The items.
      * @param   string     $extension  The workflow extension.
@@ -399,9 +366,7 @@ final class BuiltinConditionFields
     /**
      * How many whole days since each item was last edited.
      *
-     * Falls back to the creation date when nothing has edited the item, because Joomla leaves
-     * modified null in that case. Reading that as zero would say a five year old untouched article
-     * was edited today, which is the opposite of what a staleness filter is asking.
+     * Falls back to the creation date for an item whose modified date is empty.
      *
      * @param   int[]      $itemIds    The items.
      * @param   string     $extension  The workflow extension.
@@ -436,9 +401,7 @@ final class BuiltinConditionFields
     /**
      * Whole days between a stored timestamp and a moment, never negative.
      *
-     * Floored, so "7" covers everything from seven days to just under eight. A stamp in the future
-     * reads as 0 rather than a negative age, which would make "less than" quietly true for items a
-     * clock skew put ahead of now.
+     * Floored, so 7 means from seven days up to just under eight.
      *
      * @param   string     $stamp  A database timestamp, in UTC.
      * @param   \DateTime  $when   The moment to measure against.
@@ -503,8 +466,6 @@ final class BuiltinConditionFields
             return $values;
         }
 
-        // Groups are fetched per author, not per item, so many items by one author cost a
-        // single row in this result.
         $db         = $this->database;
         $groupQuery = $db->getQuery(true)
             ->select($db->quoteName(['user_id', 'group_id']))
@@ -583,8 +544,7 @@ final class BuiltinConditionFields
      */
     private function getCategoryOptions(string $extension): array
     {
-        // Categories are stored per component, so the section is dropped: com_content.article
-        // and com_content.category both draw on com_content's categories.
+        // Categories belong to the component, so the section part of the extension is dropped.
         $component = strtok($extension, '.');
         $options   = [];
 
@@ -688,10 +648,6 @@ final class BuiltinConditionFields
     /**
      * Where an extension keeps its own items: the table and its key column.
      *
-     * Both come from the content type registration rather than a list kept here, so an extension
-     * this component has never heard of still works. Returns null when the extension is not
-     * registered, or when the registration names something that is not a plain table.
-     *
      * @param   string  $extension  The workflow extension, e.g. com_content.article.
      *
      * @return  array{table: string, key: string}|null
@@ -713,8 +669,7 @@ final class BuiltinConditionFields
         $table = $definition['special']['dbtable'] ?? '';
         $key   = $definition['special']['key'] ?? '';
 
-        // These reach a query as identifiers, so anything that is not a plain table or column
-        // name is refused here rather than trusted because it came from the database.
+        // Used as identifiers in a query, so validated even though they come from the database.
         if (!\is_string($table) || !preg_match('/^#__[a-zA-Z0-9_]+$/', $table)) {
             return null;
         }
@@ -728,9 +683,6 @@ final class BuiltinConditionFields
 
     /**
      * Whether an extension's own item table carries a column.
-     *
-     * This is what decides whether a check is offered: one that reads a column the extension
-     * does not have would list in the builder and then fail when a rule used it.
      *
      * @param   string  $extension  The workflow extension.
      * @param   string  $column     The column the check needs.
@@ -750,8 +702,7 @@ final class BuiltinConditionFields
         try {
             return isset($this->database->getTableColumns($storage['table'], false)[$column]);
         } catch (\Throwable) {
-            // A registration can outlive the table it names, for instance after a failed
-            // uninstall.
+            // A registration can outlive its table, for instance after a failed uninstall.
             return false;
         }
     }

@@ -18,14 +18,8 @@ use Joomla\Event\Event;
 /**
  * Asks plugins for the value of one check across a set of items.
  *
- * Deliberately batched: a whole scheduler run resolves a check once for every item it is
- * evaluating, so a plugin answers with a map rather than being called per item. A per-item
- * contract would make one database query per item unavoidable for every plugin ever written,
- * which is the exact cost this design exists to prevent.
- *
- * A moment check does not depend on the item at all, so it answers with the same value for
- * every id, computed at the event's evaluation time rather than at "now". That is what lets
- * the upcoming-transitions views ask "would this condition hold next Tuesday?".
+ * Batched, so a plugin can answer for every item with one query. A moment check returns the
+ * same value for every id, computed at the evaluation time rather than now.
  *
  * @since  __DEPLOY_VERSION__
  */
@@ -99,20 +93,8 @@ class WorkflowResolveFieldsEvent extends Event
     /**
      * Supplies the resolved values, and claims the check.
      *
-     * Keyed by item id, deliberately, rather than a list running parallel to the ids that were
-     * asked for. A list only works while every item gets an answer: omit one and every value
-     * after it maps to the wrong item, silently, so a rule fires on the strength of a different
-     * item's data. A map cannot drift out of step, and it makes "no answer for this item"
-     * something a provider can express rather than something the caller has to infer from a
-     * length mismatch.
-     *
-     * Call this even with an empty array when the check is yours. That is what separates
-     * "this check belongs to me and I could not answer for those items" from "nobody here
-     * knows this check", which are reported very differently.
-     *
-     * Omitting an item is allowed and means the check cannot be evaluated for it: no rule
-     * will fire on that item, rather than a comparison being made against a guess. A source
-     * that is temporarily unreachable should omit rather than substitute a default.
+     * Call this even with an empty array when the check is yours, so it counts as claimed. Leave
+     * out any item you cannot answer for rather than guessing, and no rule will fire on it.
      *
      * @param   array  $values  Item id to value. A value may be a scalar or a list, depending
      *                          on the check.
@@ -132,18 +114,8 @@ class WorkflowResolveFieldsEvent extends Event
     /**
      * Whether any plugin claimed this check, regardless of how many items it answered for.
      *
-     * Not inferable from the values, which is the reason it exists. A plugin that owns the check
-     * but could answer for none of the items this run returns an empty map, and that is
-     * indistinguishable from no plugin having listened at all. The two need opposite treatment:
-     * the first is a working extension having a bad day, so the items wait and are reconsidered
-     * next run, while the second is a rule pointing at a check the site no longer has, which is
-     * a configuration fault someone has to go and fix. See ItemFieldResolver::resolveBatch(),
-     * which throws only for the second.
-     *
-     * The list event could be dispatched to ask the same thing, but it would mean firing a
-     * second event to work out something the first one already knows, and it answers a subtly
-     * different question: which checks can be offered, rather than whether one was claimed on
-     * this particular resolve.
+     * An owner that answered for no items is not the same as no owner at all. No owner means the
+     * extension that provided the check is gone.
      *
      * @return  boolean
      *

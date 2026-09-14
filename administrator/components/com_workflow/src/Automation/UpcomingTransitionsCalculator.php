@@ -21,11 +21,6 @@ use Joomla\Database\QueryInterface;
 /**
  * Works out, on the fly, each item's next automated transition in a workflow.
  *
- * Reads the items currently sitting in the workflow's stages, applies each rule's filter to
- * see whether it is in scope, computes the fire time the same way the scheduler does, and
- * keeps the soonest move per item. Nothing is stored: this recomputes every time the view is
- * opened, so it is always current. It never fires anything.
- *
  * @since  __DEPLOY_VERSION__
  */
 final class UpcomingTransitionsCalculator
@@ -124,19 +119,13 @@ final class UpcomingTransitionsCalculator
      */
     private function buildFromRows(array $rows): array
     {
-        // Keep the soonest in-scope rule per item. An item can have several automated exits
-        // from its stage; we only show the one that fires next.
         $bestByItem = [];
 
-        // A rule whose filter cannot be read tells us nothing about whether it applies to this
-        // item, so it cannot compete for "fires next". The item is remembered separately
-        // instead of being dropped: dropping it is what used to make a broken rule vanish from
-        // the view completely, which is the one case an administrator most needs to see. The
-        // first message wins, matching the scheduler, which also reports one fault per item.
+        // Items whose filter cannot be read are kept aside rather than dropped, so a broken rule
+        // still shows in the view. The first message wins, as in the scheduler.
         $liveFailureByItem = [];
         $fallbackRowByItem = [];
 
-        // Same reason as the scheduler: one batch of lookups instead of one per row.
         $itemIdsByExtension = [];
         foreach ($rows as $row) {
             $itemIdsByExtension[$row->extension][] = (int) $row->item_id;
@@ -161,8 +150,7 @@ final class UpcomingTransitionsCalculator
                 continue;
             }
 
-            // Rules compete on when they become due, before any condition is considered, so
-            // the item keeps the rule that comes up first.
+            // Rules compete on their deadline, before any fire condition is applied.
             $deadline = DeadlineCalculator::forRule($row->entered_at, $row);
 
             if (!isset($bestByItem[$itemKey]) || $this->isSooner($deadline, $bestByItem[$itemKey]['deadline'])) {
@@ -170,8 +158,7 @@ final class UpcomingTransitionsCalculator
             }
         }
 
-        // An item whose every rule was unreadable has no winner to show, so the first rule that
-        // failed stands in for it. Without this the item is still missing from the view.
+        // An item whose every rule was unreadable is shown through the first rule that failed.
         foreach ($fallbackRowByItem as $itemKey => $row) {
             $bestByItem[$itemKey] ??= ['row' => $row, 'deadline' => null];
         }
@@ -315,16 +302,12 @@ final class UpcomingTransitionsCalculator
                 $db->quoteName('w.id') . ' = ' . $db->quoteName('wt.workflow_id')
             )
 
-            // Every level has to be on, and the scheduler applies the same three, so the
-            // preview never advertises a transition the engine would refuse to fire.
+            // The same three checks the scheduler applies.
             ->where($db->quoteName('w.published') . ' = 1')
             ->where($db->quoteName('wt.published') . ' = 1')
             ->where($db->quoteName('war.published') . ' = 1')
-            // Not cosmetic. buildFromRows() keeps the first row on a tie, because isSooner()
-            // answers false for equal deadlines, so this clause is what makes transition
-            // ordering the tiebreak. selectRuleForItem() compares it explicitly for the sam
-            // reason. Change or remove this and the two sides quietly start disagreeing about
-            // which of two simultaneously-due transitions fires.
+            // Not cosmetic: on a tie the first row wins, so this makes transition ordering the
+            // tiebreak, matching selectRuleForItem() in the scheduler.
             ->order($db->quoteName('wt.ordering') . ' ASC');
     }
 
@@ -362,12 +345,8 @@ final class UpcomingTransitionsCalculator
             ? new \DateTime((string) $row->last_failure_at, new \DateTimeZone('UTC'))
             : null;
 
-        // What this render just discovered describes the rule as it stands right now. The
-        // stored reason describes what the scheduler hit on its last real run, which is not
-        // the same question: the rule may have been fixed since, and the scheduler evaluates
-        // the fire condition at fire time, a moment this view never reaches. So a discovered
-        // fault wins, and when only the stored one exists it is shown with its timestamp while
-        // the status is left alone. The view has no business claiming a fault it cannot see.
+        // A fault found by this render wins over the one the scheduler stored, which may be out of
+        // date. A stored fault alone is shown with its time but does not change the status.
         $failureReason = $discoveredReason !== '' ? $discoveredReason : $storedReason;
         $failedAt      = $discoveredReason !== '' ? null : $storedAt;
 
@@ -394,23 +373,17 @@ final class UpcomingTransitionsCalculator
     /**
      * Works out when a rule will really fire, and the status to show for it.
      *
-     * The deadline only says when the rule becomes due. When a fire condition gates it, the
-     * transition waits until that condition holds, so the moment it actually fires is the
-     * first match at or after the deadline. An overdue item is searched from now rather than
-     * from its deadline, because the past cannot be its next opportunity.
+     * A gated rule fires at the first moment its condition holds, searching from the deadline,
+     * or from now when the rule is already overdue.
      *
      * @param   object          $row                   The rule row.
      * @param   \DateTime|null  $deadline              The moment the rule becomes due.
      * @param   \DateTime       $now                   Current time (UTC).
      * @param   boolean         $hasCondition          Whether a fire condition exists.
      * @param   boolean         $requiresIntervention  Whether the item is flagged stuck.
-     * @param   string          $liveFailureReason     A filter fault this render already found,
-     * or '' if the filter read cleanly.
+     * @param   string          $liveFailureReason     A filter fault this render found, or ''.
      *
-     * @return  array{0: \DateTime|null, 1: string, 2: string}  Fire time, status, and the fault
-     * this render found if any.
-     *
-     * @return  array{0: \DateTime|null, 1: string}  The fire time and the display status.
+     * @return  array{0: \DateTime|null, 1: string, 2: string}  Fire time, status, and any fault found.
      *
      * @since   __DEPLOY_VERSION__
      */
@@ -422,14 +395,11 @@ final class UpcomingTransitionsCalculator
         bool $requiresIntervention,
         string $liveFailureReason
     ): array {
-        // Blocked outranks everything: the item is out of the scheduler until a person clears
-        // it, so nothing about its timing is worth showing.
+        // Blocked outranks everything: the scheduler skips the item until a person clears it.
         if ($requiresIntervention) {
             return [$deadline, 'needs_attention', ''];
         }
 
-        // The filter could not be read, so whether this rule even applies is unknown, which
-        // makes any fire time a guess.
         if ($liveFailureReason !== '') {
             return [null, 'rule_error', $liveFailureReason];
         }
@@ -450,15 +420,11 @@ final class UpcomingTransitionsCalculator
                 (string) $row->extension
             );
         } catch (ConditionEvaluationException $invalidCondition) {
-            // This was reported as needs_attention, which was misleading. That status means
-            // the item is stopped and waiting on a person; this one keeps being retried every
-            // run and clears itself the moment the rule is fixed. Telling an administrator to
-            // go and unstick something that is not stuck wastes their time.
+            // Not needs_attention: the item is not stuck. It is retried every run and recovers once
+            // the rule is fixed.
             return [null, 'rule_error', $invalidCondition->getMessage()];
         }
 
-        // The condition never opens again within the search horizon, so there is no fire time
-        // to promise: for example a rule gated on a date that has already passed.
         if ($firesAt === null) {
             return [null, 'not_scheduled', ''];
         }
@@ -542,9 +508,6 @@ final class UpcomingTransitionsCalculator
     /**
      * Calculates the next automated transition for a set of items, keyed by item id.
      *
-     * One query for the whole set, so a list view can badge many rows without a query each
-     * Only items that actually have a pending move appear in the result.
-     *
      * @param int[] $itemIds The content item ids.
      * @param string $extension The workflow extension, e.g. com_content.article.
      *
@@ -591,17 +554,9 @@ final class UpcomingTransitionsCalculator
     }
 
     /**
-     * Runs a rows query and finishes the two jobs the query cannot do itself.
+     * Runs a rows query, drops trashed and archived items, and fills in item titles.
      *
-     * Both need the extension's own item table, and one query cannot join a different table
-     * per row, so they happen here instead. Each costs one query per extension in the result
-     * rather than one per item.
-     *
-     * Trashed and archived items are dropped: an editor has taken them out of use, and the
-     * scheduler ignores them too, so previewing a transition for them would promise something
-     * that will never happen. Titles are filled in so the views can name the item rather than
-     * falling back to its id, which is what happened for every extension except com_content
-     * while the title came from a hardcoded join.
+     * Both need the extension's own item table, which one query cannot join per row.
      *
      * @param QueryInterface $query The prepared rows query.
      *
@@ -629,8 +584,7 @@ final class UpcomingTransitionsCalculator
 
         foreach ($itemIdsByExtension as $extension => $itemIds) {
             foreach ($itemStorage->trashedOrArchivedIds($itemIds, $extension) as $itemId) {
-                // Keyed by extension and id together, because an item id is only unique within
-                // its own extension: article 5 and contact 5 are different items.
+                // An item id is only unique within its own extension.
                 $excluded[$extension . '.' . $itemId] = true;
             }
 
@@ -648,8 +602,6 @@ final class UpcomingTransitionsCalculator
                 continue;
             }
 
-            // The views expect this property whether or not a name was found; null means
-            // "show the id instead" rather than "no row".
             $row->item_title = $titles[$key] ?? null;
             $kept[]          = $row;
         }

@@ -218,9 +218,6 @@ class JoomlaInstallerScript
 
     /**
      * Creates the workflow automation scheduler task on a site that does not have one.
-     * Runs on every update and does nothing when the task is already there. That also
-     * means an administrator who deleted it gets it back the next update rather than
-     * being stuck without it.
      *
      * @return void
      *
@@ -230,8 +227,7 @@ class JoomlaInstallerScript
     {
         $db = Factory::getContainer()->get(DatabaseInterface::class);
 
-        // No state filter: a task the administrator disabled still counts as present, so an
-        // update does not overrule that decision by recreating it.
+        // No state filter, so a task the administrator disabled is not recreated.
         $existing = $db->setQuery(
             $db->createQuery()
                 ->select($db->quoteName('id'))
@@ -256,8 +252,7 @@ class JoomlaInstallerScript
             'title' => 'Workflow Automation',
             'type'  => 'workflow.automation',
 
-            // Deliberately slow: this ships to every site, including the many with no workflows,
-            // where each run finds nothing. Administrators can change it.
+            // Every 15 minutes, because this ships to every site, including those with no workflows.
             'execution_rules' => json_encode([
                 'rule-type'        => 'interval-minutes',
                 'interval-minutes' => 15,

@@ -51,8 +51,7 @@ class LogsController extends BaseController
             /** @var \Joomla\Component\Workflow\Administrator\Model\LogsModel $model */
             $model = $this->getModel('Logs', 'Administrator');
 
-            // Unreachable while both checks agree, which is the point: if they ever diverge the
-            // model's answer is the one that decides, not this one.
+            // The model checks the permission too, and its answer is the one that counts.
             if (!$model->clearIntervention($itemId, $extension)) {
                 $this->setRedirect(Route::_($redirect, false), Text::_('JERROR_ALERTNOAUTHOR'), 'error');
 

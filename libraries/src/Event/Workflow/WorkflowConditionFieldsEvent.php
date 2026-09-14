@@ -18,15 +18,8 @@ use Joomla\Event\Event;
 /**
  * Collects the checks that automation filters and conditions may be built on.
  *
- * Plugins answer this event by calling addField() once per check they provide, which is how
- * the condition builder learns what to offer. Core ships its own checks through a plugin that
- * answers this event too, so nothing is special-cased.
- *
- * A check declares whether it describes the item or the moment. Item checks (a tag, a
- * category) belong in a rule's filter, because they say which items a rule applies to. Moment
- * checks (the day of the week) belong in a rule's condition, because they say when a due rule
- * may run. Keeping them apart is what lets the upcoming-transitions views work out when a
- * gated rule will actually fire.
+ * Plugins call addField() once per check they provide. Item checks, such as a tag, are offered in
+ * a rule's filter, and moment checks, such as the day of the week, in its fire condition.
  *
  * @since  __DEPLOY_VERSION__
  */
@@ -49,10 +42,8 @@ class WorkflowConditionFieldsEvent extends Event
     public const SCOPE_MOMENT = 'moment';
 
     /**
-     * The comparisons a check may declare support for. com_workflow implements every one of
-     * these.
-     * The values are the strings stored inside a saved rule, so they must not change once
-     * a rule can exist that uses them.
+     * The comparisons a check may declare support for. The values are stored inside saved
+     * rules, so they must never change.
      *
      * @var string
      * @since __DEPLOY_VERSION__

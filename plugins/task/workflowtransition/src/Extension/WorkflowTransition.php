@@ -38,10 +38,6 @@ use Joomla\Plugin\Task\WorkflowTransition\Dto\DueAutomation;
 /**
  * Scheduler task plugin that fires automated workflow transitions.
  *
- * When the Joomla Scheduler runs this task, it queries workflow_item_state
- * for items sitting in stages that have automation, works out live which of them are due,
- * then fires the appropriate * workflow transition for each one using Joomla's existing transition engine.
- *
  * @since __DEPLOY_VERSION__
  */
 final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
@@ -63,15 +59,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * How many (item, rule) rows to consider in one run.
      *
-     * Without a stored deadline every item in an automated stage is a candidate, so the batch
-     * is bounded to keep a run predictable.
-     *
-     * Rows are taken least-recently-checked first and every row considered is stamped, so the
-     * window rotates and each row gets its turn. Ordering by entry time instead would let a
-     * group that never becomes eligible, because a filter keeps excluding it, hold the front
-     * of the queue forever: those rows never transition, so their entry time never changes,
-     * so nothing behind them is ever reached.
-     *
      * @var integer
      * @since __DEPLOY_VERSION__
      */
@@ -81,10 +68,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      * How much of a failure reason is kept. Matches the width of
      * #__workflow_item_state.last_failure_reason.
      *
-     * The message is cut to this length at the point it is built, not at the point it is
-     * written, so that what a later run compares against is exactly what was stored. Cutting
-     * it on the way into the database instead would make every run compare a full message
-     * against a truncated one, find them different, and send another email.
+     * Cut when the message is built, not when it is written, so the next run compares against
+     * exactly what was stored instead of sending the same email again.
      *
      * @var integer
      * @since __DEPLOY_VERSION__
@@ -93,10 +78,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
     /**
      * Outcomes recorded in #__workflow_automation_log.exit_code.
-     *
-     * Kept as constants because the numbers appear at every call site and mean nothing on
-     * sight. The column's own comment lists them too; these are the authority and that comment
-     * follows them.
      *
      * @var integer
      * @since __DEPLOY_VERSION__
@@ -108,10 +89,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * The item moved on before the transition could fire.
      *
-     * Separate from EXIT_REFUSED because it is not a fault. A candidate is fetched at the start
-     * of a run and acted on later; if somebody transitions the item by hand in between, the
-     * candidate describes a stage the item has already left. Nothing went wrong and nobody needs
-     * telling, but it belongs in the log so the run can be accounted for.
+     * Not a fault, so nobody is notified: someone moved the item by hand while the run was going.
      *
      * @var integer
      * @since __DEPLOY_VERSION__
@@ -153,18 +131,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * Main task routine - called by the scheduler when the task is due.
      *
-     * Groups the due candidates by item, then for each item fires a single rule: it must be
-     * past its deadline, pass its filter, and meet its live condition, with the highest-priority
-     * survivor winning.
-     *
-     * Assumptions about the operating environment:
-     * - The scheduler holds a per-task lock and will not run this task concurrently with itself,
-     *   so no per-rule or per-item locking is done here.
-     *  - Candidates are read once at the start of the run, so an item may be moved by a manual
-     *   transition while the run is still in progress. Workflow::attemptTransition() re-checks
-     *   the item's current stage association before acting and reports STAGE_MISMATCH, so a
-     *   stale candidate cannot fire a transition that no longer applies.
-     *
+     * No locking is done here, because the scheduler never runs the same task twice at once.
      *
      * @param   ExecuteTaskEvent  $event  The scheduler event.
      *
@@ -186,7 +153,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         // an exception still moves to the back of the queue instead of being re-picked every run.
         $this->markCandidatesChecked($candidates, $now);
 
-        // Group the candidate rules by the item they might act on, so we pick one winner per item.
         $candidatesByItem = [];
 
         foreach ($candidates as $candidate) {
@@ -196,8 +162,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $conditionEvaluator = new ConditionEvaluator();
         $itemFieldResolver  = new ItemFieldResolver($this->getDatabase());
 
-        // Fetch every item's fields up front so evaluating filters across the batch costs a
-        // fixed number of queries rather than one lookup per item.
         $itemIdsByExtension = [];
 
         foreach ($candidates as $candidate) {
@@ -211,24 +175,14 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $app                = Factory::getApplication();
         $failures           = [];
 
-        // Item state rows that could not be evaluated this run, keyed by row id, with the
-        // reason as the value. Collected here and written in bulk after the loop, because a
-        // broken rule usually breaks for every item it covers and one query per item would
-        // turn a single misconfiguration into hundreds of writes.
         $failureReasonsByItemState = [];
 
-        // Item state rows carrying a stored reason that no longer applies, because they read
-        // cleanly this time. Cleared for the same reason, in one query.
         $recoveredItemStates = [];
 
         foreach ($candidatesByItem as $itemCandidates) {
-            // Set by selectRuleForItem() only when a rule's stored expression cannot be read.
             $evaluationFailure = null;
 
-            // Safe without a guard: $candidatesByItem is built by appending, so a group only
-            // exists because at least one candidate was pushed into it, and the keys are always
-            // zero-based. Every candidate for one item shares its item state row, so any of
-            // them can speak for the item.
+            // Every candidate for one item shares its item state row, so any of them can speak for it.
             $firstCandidate = $itemCandidates[0];
 
             $winningRule = $this->selectRuleForItem(
@@ -242,12 +196,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             if ($evaluationFailure !== null) {
                 $failureReasonsByItemState[$firstCandidate->item_state_id] = $evaluationFailure;
 
-                // Only a reason the administrator has not already been told about earns an
-                // email. A broken rule fails again on every single run, and mailing someone
-                // every run about a fault they already know about is how notifications end up
-                // in a folder nobody reads. Comparing against the stored reason still catches
-                // a fault that returns after being fixed, because the column was cleared in
-                // between, and still catches the same rule failing for a new reason.
+                // Only a reason not already stored earns an email, or a broken rule would mail the
+                // administrator on every run. A fault that returns after a fix still counts as new.
                 if ($evaluationFailure !== $firstCandidate->last_failure_reason) {
                     $failures[] = $this->notificationLine(
                         (int) $firstCandidate->item_id,
@@ -256,8 +206,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                     );
                 }
             } elseif ($firstCandidate->last_failure_reason !== null) {
-                // It read cleanly this time, so the stored fault is stale. Left in place it
-                // would keep warning about a rule that has since been fixed.
                 $recoveredItemStates[] = $firstCandidate->item_state_id;
             }
 
@@ -266,9 +214,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             }
         }
 
-        // Cleared first, then recorded. An item can read cleanly and still fail to fire, in
-        // which case fireRule() writes a reason for a row that is already on the clear list.
-        // The other order wipes the reason a moment after writing it.
+        // Clear before recording: an item can read cleanly and still fail to fire, and the other
+        // order would wipe the reason that fireRule() has just written.
         $this->clearEvaluationFailures($recoveredItemStates);
         $this->recordEvaluationFailures($failureReasonsByItemState, $now);
 
@@ -287,12 +234,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * Fetches every (item, rule) pair this run could act on.
      *
-     * Joins the item state, transition, and rule tables so each row carries both the item's
-     * schedule data and a rule that could fire it. Deliberately not named for overdue-ness:
-     * nothing here filters by time. Whether a rule is due is worked out live from entered_at,
-     * because a stored deadline goes stale the moment a rule, an item, or a stage's automation
-     * changes. Rows are taken least-recently-checked first and capped, so a large backlog is
-     * worked through over successive runs rather than in one.
+     * Nothing here filters by time. Whether a rule is due is worked out live from entered_at,
+     * because a stored deadline would go stale whenever a rule or an item changes.
      *
      * @return  DueAutomation[]
      *
@@ -340,21 +283,16 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             )
 
             ->where($db->quoteName('wis.requires_intervention') . ' = 0')
-            // Every level has to be on: switching off a workflow, a transition or a single
-            // rule should each stop the automation below it.
             ->where($db->quoteName('w.published') . ' = 1')
             ->where($db->quoteName('wt.published') . ' = 1')
             ->where($db->quoteName('war.published') . ' = 1')
 
-            // A row nobody has looked at yet sorts as though it were checked long ago, so a new
-            // item is picked up on the next run rather than waiting a full rotation. Written as
-            // COALESCE rather than NULLS FIRST because MySQL and PostgreSQL disagree on where
-            // nulls belong in an ascending sort.
+            // Least-recently-checked first, so rows that a filter keeps excluding cannot hold the front
+            // of the queue forever. COALESCE because MySQL and PostgreSQL sort nulls differently.
             ->order(
                 'COALESCE(' . $db->quoteName('wis.last_checked_at') . ', '
                     . $db->quote(self::NEVER_CHECKED) . ') ASC'
             )
-            // Among rows checked equally long ago, the one waiting longest in its stage first.
             ->order($db->quoteName('wis.entered_at') . ' ASC')
             ->order($db->quoteName('wt.ordering') . ' ASC')
             ->setLimit(self::MAX_CANDIDATES_PER_RUN);
@@ -370,16 +308,13 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * Drops candidates whose item an editor has trashed or archived.
      *
-     * This is done after the query rather than inside it because each extension keeps its
-     * items on its own table, and one query cannot join a different table per row.
-     * Filtering here instead costs one query per extension in the run, not one per item,
-     * and it works for any extension rather than only com_content.
+     * Done after the query, because each extension keeps its items in its own table.
      *
-     * @param DueAutomation[] $candidates Every candidate row the query returned.
+     * @param   DueAutomation[]  $candidates  Every candidate row the query returned.
      *
-     * @returned DueAutomation[]
+     * @return  DueAutomation[]
      *
-     * @since __DEPLOY__VERSION__
+     * @since   __DEPLOY_VERSION__
      */
     private function withoutTrashedOrArchived(array $candidates): array
     {
@@ -398,8 +333,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
         foreach ($itemIdsByExtension as $extension => $itemIds) {
             foreach ($itemStorage->trashedOrArchivedIds($itemIds, $extension) as $itemId) {
-                // Keyed by extension and id together because an item id is only unique
-                // within its own extension.
+                // An item id is only unique within its own extension.
                 $excluded[$extension . '.' . $itemId] = true;
             }
         }
@@ -418,15 +352,13 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * Records the outcome of one automated transition attempt.
      *
-     * @param object $item The overdue (item, rule) pair being processed.
-     * @param integer $exitCode 0 = success; non-zero = failure (see
-     * #__workflow_automation_log).
-     * @param string $note Optional human-readable reason, truncated to the column
-     * length.
+     * @param   object   $item      The (item, rule) pair being processed.
+     * @param   integer  $exitCode  One of the EXIT_* constants.
+     * @param   string   $note      Optional reason, truncated to the column length.
      *
-     * @return void
+     * @return  void
      *
-     * @since __DEPLOY_VERSION__
+     * @since   __DEPLOY_VERSION__
      */
     private function logAutomationRun(object $item, int $exitCode, string $note = ''): void
     {
@@ -445,12 +377,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             'executed_at'    => Factory::getDate()->toSql(),
         ];
 
-        // insertObject() returns true or throws; there is no falsy failure to check for, which
-        // is why the return was discarded. The catch is what actually matters here. This row is
-        // a record of what happened, not part of making it happen, and letting a logging failure
-        // escape into fireRule()'s catch would report a transition that fired perfectly well as
-        // a failure, flag the item for intervention, and stop it being retried, all because an
-        // audit row could not be written.
+        // A logging failure must not escape into fireRule()'s catch, which would report a transition
+        // that fired perfectly well as failed and block the item from further retries.
         try {
             $db->insertObject('#__workflow_automation_log', $row);
         } catch (\Throwable $error) {
@@ -483,19 +411,14 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $app  = Factory::getApplication();
         $base = (string) $app->get('live_site');
 
-        // Uri::root() works the address out from the current HTTP request. A run started from
-        // cron has no request, so asking it there raises a warning into the cron log and then
-        // throws. Catching the exception is not enough on its own, because the warning is
-        // emitted first and would still fill the log on every failing item.
+        // Not called under cron: with no request, Uri::root() emits a warning before it throws, so
+        // catching the exception would still fill the log.
         if ($base === '' && !$app->isClient('cli')) {
             $base = Uri::root();
         }
 
         if ($base === '') {
-            // Site URL is empty by default in Joomla, so a cron-driven site lands here as a
-            // matter of course rather than as an edge case. The link is a convenience in a
-            // notification: the report goes out without one, and an administrator who wants
-            // links in their notifications fills in Site URL in Global Configuration.
+            // Under cron a link needs $live_site in configuration.php; without it the report has none.
             return '';
         }
 
@@ -506,12 +429,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * Builds one line of the run's failure report.
      *
-     * The sentence structure is translated; the reason inside it is not. A reason is stored on
-     * the item and compared on the next run to decide whether to notify again, so it has to be
-     * the same string every time, whoever is logged in and whatever language the site runs in.
-     * Translating it would make a change of site language look like a new fault and mail an
-     * administrator about every affected item at once. Its core is usually an exception message
-     * from the evaluator or a third-party check in any case, which no language file covers.
+     * The reason is not translated: it is stored and compared on the next run, so it must be the
+     * same string whatever language the site runs in.
      *
      * @param   integer  $itemId  The content item id.
      * @param   string   $reason  Why the rule could not fire, as stored on the item.
@@ -533,10 +452,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * Records that this run considered these item states, in one query.
      *
-     * This is what makes the candidate window rotate. Every row the run looked at moves to the
-     * back of the queue, whether or not a rule fired for it, so the next run reaches the rows
-     * behind it.
-     *
      * @param   DueAutomation[]  $candidates  Every candidate row this run fetched.
      * @param   string           $now         The run's timestamp, in SQL format.
      *
@@ -546,8 +461,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
      */
     private function markCandidatesChecked(array $candidates, string $now): void
     {
-        // One item can appear once per rule on its stage, so the ids are deduplicated before
-        // they reach the query.
         $itemStateIds = array_values(array_unique(
             array_map(static fn (DueAutomation $candidate): int => $candidate->item_state_id, $candidates)
         ));
@@ -564,9 +477,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
     /**
      * Flags an item as needing manual intervention after its transition failed.
-     *
-     * Clearing requires_intervention later makes the item eligible again on the next run,
-     * because its due-ness is recomputed from entered_at rather than read from a stored value.
      *
      * @param integer $itemStateId The #__workflow_item_state row id.
      *
@@ -589,15 +499,8 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * Stores why these item states could not be evaluated, so the reason survives the run.
      *
-     * Grouped by reason rather than written row by row. One misconfigured rule fails with the
-     * same message for every item it covers, so the usual case is a single query no matter how
-     * many items are affected, and the worst case is one query per distinct fault rather than
-     * one per item.
-     *
-     * This is not the same thing as requires_intervention. That flag takes an item out of the
-     * scheduler until a human clears it, and is set when a transition actually failed to run.
-     * This is a note about a rule that could not be read: the item keeps being retried, and the
-     * note clears itself as soon as the rule is fixed.
+     * Unlike requires_intervention, this does not stop retries, and it clears itself once the
+     * rule is fixed. Written with one query per distinct reason rather than one per item.
      *
      * @param string[] $reasonsByItemStateId  Reason text, keyed by #__workflow_item_state id.
      * @param string $now The run's timestamp, in SQL format.
@@ -621,8 +524,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $db = $this->getDatabase();
 
         foreach ($itemStateIdsByReason as $reason => $itemStateIds) {
-            // Cast because PHP silently turns an array key that looks like a whole number into
-            // an integer, and bind() expects the string it was given.
+            // Numeric-looking reasons became integer keys above, and bind() needs a string.
             $reasonText = (string) $reason;
 
             $updateQuery = $db->getQuery(true)
@@ -639,11 +541,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
     /**
      * Removes the stored failure note from item states that evaluated cleanly this run.
-     *
-     * Self-clearing is what separates this note from requires_intervention: fixing the rule is
-     * enough, nobody has to go and dismiss anything. It is also what makes the notification
-     * rule work, because a fault that returns after being cleared compares against null and so
-     * counts as new.
      *
      * @param   integer[]  $itemStateIds  The #__workflow_item_state row ids to clear.
      *
@@ -670,19 +567,13 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     /**
      * Chooses which single rule, if any, should fire for one item this run.
      *
-     * Considers every candidate rule for the item: it must be past its own deadline, its
-     * filter must scope the item in, and its live condition must currently hold. The survivor
-     * that came due soonest wins, with the administrator's ordering as the tiebreak. When
-     * nothing fires there is nothing to record: the next run recomputes from entered_at and
-     * reaches the same conclusion, or a different one if the rule or the item changed in the
-     * meantime.
+     * The rule that came due soonest wins, with the Transitions list ordering as the tiebreak.
      *
      * @param   object[]            $itemCandidates      Candidate rows for a single item.
      * @param   \DateTime           $nowDateTime         Current time (UTC).
      * @param   ConditionEvaluator  $conditionEvaluator  The expression evaluator.
      * @param   ItemFieldResolver   $itemFieldResolver   The field resolver factory.
-     * @param string|null $evaluationFailure Set by reference to why this item could
-     * not be evaluated or left null if it could
+     * @param   string|null         $evaluationFailure   Set to why the item could not be evaluated.
      *
      * @return  object|null  The winning candidate, or null if none should fire.
      *
@@ -698,8 +589,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         $firstCandidate = $itemCandidates[0];
         $fieldResolver  = $itemFieldResolver->forItem((int) $firstCandidate->item_id, $firstCandidate->extension);
 
-        // The deadline is kept with each survivor because it is what decides the winner, and
-        // recomputing it during the sort would run the cron parser once per comparison.
+        // Deadlines are kept so that sorting does not run the cron parser once per comparison.
         $eligibleRules = [];
 
         foreach ($itemCandidates as $candidate) {
@@ -709,7 +599,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                 continue;
             }
 
-            // Not due yet by this rule's own timing.
             if ($deadline > $nowDateTime) {
                 continue;
             }
@@ -719,7 +608,6 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
                     continue;
                 }
 
-                // Due and in scope, but is the live condition satisfied right now?
                 if (!$conditionEvaluator->evaluate($candidate->fire_condition, $fieldResolver)) {
                     continue;
                 }
@@ -749,19 +637,12 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     }
 
     /**
-     * Records one rule failure in all the places it has to appear.
-     *
-     * The same things happen every time a rule cannot fire, and keeping them together means a
-     * new failure path cannot accidentally do only some of them: the run's report gains a line
-     * so it reaches an administrator, the automation log gains a row so there is a history, and
-     * the item's own state row gains the reason so the screens can explain the delay.
-     *
+     * Records one rule failure in the run report, the automation log and the item's state row.
      *
      * @param   DueAutomation  $rule            The rule that could not fire.
      * @param   string[]       $failures        Collected failure messages (by reference).
      * @param   string[]       $failureReasons  Reasons keyed by item state row id (by reference).
-     * @param   string         $note            What went wrong, in plain words. Deliberately not
-     * translated: it is stored, and stored text has to be stable. See notificationLine().
+     * @param   string         $note            What went wrong. Not translated, see notificationLine().
      * @param   integer        $exitCode        A #__workflow_automation_log exit code.
      * @param   boolean        $blockRetries    Whether to take the item out of the scheduler.
      *

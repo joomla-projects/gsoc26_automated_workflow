@@ -357,11 +357,8 @@ class Workflow
     /**
      * Executes a transition and reports which outcome it reached.
      *
-     * executeTransition() answers the same question with a boolean, which cannot distinguish an
-     * item that has moved out of the starting stage from a permission failure or a plugin veto.
-     * Callers that need to react differently to those cases use this instead of checking the
-     * item's stage themselves, which would read the association a second time and leave a window
-     * in which it can change.
+     * Unlike executeTransition(), which returns a boolean, this tells a stage mismatch apart from a
+     * permission failure or a plugin veto.
      *
      * @param   integer[]  $pks           The item IDs, which should use the transition
      * @param   integer    $transitionId  The transition which should be executed

@@ -29,9 +29,6 @@ return new class () implements ServiceProviderInterface {
                 );
                 $plugin->setApplication(Factory::getApplication());
 
-                // No database here: this check's answers live outside Joomla entirely, which is
-                // the point of this plugin. The cache is what keeps the site from asking again
-                // on every admin page load.
                 $plugin->setCacheControllerFactory($container->get(CacheControllerFactoryInterface::class));
 
                 return $plugin;

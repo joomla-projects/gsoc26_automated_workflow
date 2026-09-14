@@ -23,9 +23,6 @@ use Joomla\Component\Workflow\Administrator\Model\UpcomingModel;
 /**
  * Upcoming automated transitions across every workflow of an extension.
  *
- * The counterpart to the automation log: the log is what already happened, this is what is
- * coming. Both are available extension-wide here and per workflow on the workflow itself.
- *
  * @since  __DEPLOY_VERSION__
  */
 class HtmlView extends BaseHtmlView
