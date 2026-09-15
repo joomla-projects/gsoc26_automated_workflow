@@ -54,4 +54,108 @@ class WorkflowTransitionEvent extends AbstractEvent
             $this->stopPropagation();
         }
     }
+
+    /**
+     * Pre-process the pks argument.
+     *
+     * @param   mixed  $value  The raw argument value.
+     *
+     * @return  array
+     *
+     * @since   6.2.0
+     */
+    protected function onGetPks($value): array
+    {
+        return (array) $value;
+    }
+
+    /**
+     * Get the primary keys of the items being transitioned.
+     *
+     * @return  array
+     *
+     * @since   6.2.0
+     */
+    public function getPks(): array
+    {
+        return $this->getArgument('pks');
+    }
+
+    /**
+     * Pre-process the extension argument.
+     *
+     * @param   mixed  $value  The raw argument value.
+     *
+     * @return  string
+     *
+     * @since   6.2.0
+     */
+    protected function onGetExtension($value): string
+    {
+        return (string) $value;
+    }
+
+    /**
+     * Get the extension context (e.g. com_content.article).
+     *
+     * @return  string
+     *
+     * @since   6.2.0
+     */
+    public function getExtension(): string
+    {
+        return $this->getArgument('extension');
+    }
+
+    /**
+     * Pre-process the transition argument.
+     *
+     * @param   mixed  $value  The raw argument value.
+     *
+     * @return  object
+     *
+     * @since   6.2.0
+     */
+    protected function onGetTransition($value): object
+    {
+        return (object) $value;
+    }
+
+    /**
+     * Get the transition object being executed.
+     *
+     * @return  object
+     *
+     * @since   6.2.0
+     */
+    public function getTransition(): object
+    {
+        return $this->getArgument('transition');
+    }
+
+    /**
+     * Pre-process the triggeredBy argument.
+     *
+     * @param mixed $value The raw argument value
+     *
+     * @return string
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    protected function onGetTriggeredBy($value): string
+    {
+        return (string) ($value ?? 'manual');
+    }
+
+    /**
+     * Get the trigger source - 'manual' or 'automation'
+     *
+     * @return string
+     *
+     * @since 6.2.0
+     */
+    public function getTriggeredBy(): string
+    {
+        return $this->getArgument('triggeredBy');
+    }
 }

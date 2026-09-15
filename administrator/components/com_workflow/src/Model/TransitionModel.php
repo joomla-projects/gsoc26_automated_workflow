@@ -11,10 +11,15 @@
 
 namespace Joomla\Component\Workflow\Administrator\Model;
 
+use Cron\CronExpression;
+use Joomla\CMS\Access\Access;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Form\Form;
+use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\Model\AdminModel;
 use Joomla\CMS\Plugin\PluginHelper;
+use Joomla\CMS\User\UserFactoryInterface;
+use Joomla\Database\ParameterType;
 use Joomla\Registry\Registry;
 use Joomla\String\StringHelper;
 
@@ -118,6 +123,36 @@ class TransitionModel extends AdminModel
             $item->options = $registry->toArray();
         }
 
+        if (!empty($item->id)) {
+            $db    = $this->getDatabase();
+            $query = $db->getQuery(true)
+                ->select($db->quoteName([
+                    'rule_type',
+                    'delay_value',
+                    'delay_unit',
+                    'cron_expression',
+                    'run_as_user_id',
+                    'item_filter',
+                    'fire_condition',
+                ]))
+                ->from($db->quoteName('#__workflow_automation_rules'))
+                ->where($db->quoteName('transition_id') . ' = :id')
+                ->bind(':id', $item->id, ParameterType::INTEGER)
+                ->setLimit(1);
+
+            $rule = $db->setQuery($query)->loadAssoc();
+
+            if ($rule) {
+                $item->automation = [
+                    'automation_enabled' => 1,
+                    'run_as_user_id'     => (int) ($rule['run_as_user_id'] ?? 0),
+                    'automation_rules'   => $rule,
+                ];
+            } else {
+                $item->automation = ['automation_enabled' => 0, 'run_as_user_id' => (int) $this->getCurrentUser()->id, 'automation_rules' => []];
+            }
+        }
+
         return $item;
     }
 
@@ -132,6 +167,22 @@ class TransitionModel extends AdminModel
      */
     public function save($data)
     {
+        // Switching automation off saves an empty rule, which deletes the stored one.
+        $automationData    = $data['automation'] ?? [];
+        $automationEnabled = !empty($automationData['automation_enabled']);
+        $automationRule    = $automationEnabled ? ($automationData['automation_rules'] ?? []) : [];
+        unset($data['automation']);
+
+        if (!empty($automationRule)) {
+            $automationRule['run_as_user_id'] = (int) ($automationData['run_as_user_id'] ?? 0);
+        }
+
+        $transitionId = (int) ($data['id'] ?? $this->getState($this->getName() . '.id'));
+
+        if (!$this->validateAutomation($automationRule, $transitionId)) {
+            return false;
+        }
+
         $table      = $this->getTable();
         $context    = $this->option . '.' . $this->name;
         $app        = Factory::getApplication();
@@ -178,7 +229,26 @@ class TransitionModel extends AdminModel
             $data['published'] = 0;
         }
 
-        return parent::save($data);
+        if (!parent::save($data)) {
+            return false;
+        }
+
+        $pk = (int) $this->getState($this->getName() . '.id');
+
+        try {
+            $this->saveAutomationRule($pk, $automationRule);
+        } catch (\Throwable $error) {
+            // The transition is already saved and the old rule survives the rollback, so report the
+            // error instead of letting it become a 500 page.
+            $app->enqueueMessage(
+                Text::sprintf('COM_WORKFLOW_AUTOMATION_RULE_SAVE_FAILED', $error->getMessage()),
+                'error'
+            );
+
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -325,9 +395,290 @@ class TransitionModel extends AdminModel
         // Set the access control rules field component value.
         $form->setFieldAttribute('rules', 'component', $extension);
 
+        // Filtering the picker is only a convenience; validateAutomation() enforces the rule on save.
+        $user = $this->getCurrentUser();
+
+        if (!$user->authorise('core.admin')) {
+            $reachable = $this->groupsWithNoMorePermission(Access::getGroupsByUser((int) $user->id, false));
+
+            // 0 is not a group id, so an account in no groups sees nobody rather than everybody.
+            $form->setFieldAttribute(
+                'run_as_user_id',
+                'groups',
+                implode(',', $reachable ?: [0]),
+                'automation'
+            );
+        }
+
         // Import the appropriate plugin group.
         PluginHelper::importPlugin('workflow');
 
         parent::preprocessForm($form, $data, $group);
+    }
+
+    /**
+     * Persists the automation rule for a transition, replacing whatever was there.
+     *
+     * @param   integer  $transitionId    The transition id.
+     * @param   array    $automationRule  The submitted rule, or empty to clear.
+     *
+     * @return  void
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function saveAutomationRule(int $transitionId, array $automationRule): void
+    {
+        $db   = $this->getDatabase();
+        $user = Factory::getApplication()->getIdentity();
+        $now  = Factory::getDate()->toSql();
+
+        try {
+            $db->transactionStart();
+
+            $db->setQuery(
+                $db->getQuery(true)
+                    ->delete($db->quoteName('#__workflow_automation_rules'))
+                    ->where($db->quoteName('transition_id') . ' = :id')
+                    ->bind(':id', $transitionId, ParameterType::INTEGER)
+            )->execute();
+
+            if (!empty($automationRule)) {
+                $ruleRow = (object) [
+                    'transition_id'   => $transitionId,
+                    'published'       => 1,
+                    'ordering'        => 0,
+                    'rule_type'       => $automationRule['rule_type'] ?? 'delay',
+                    'delay_value'     => (int) ($automationRule['delay_value'] ?? 0),
+                    'delay_unit'      => $automationRule['delay_unit'] ?? 'minutes',
+                    'cron_expression' => $automationRule['cron_expression'] ?? '',
+                    'run_as_user_id'  => (int) ($automationRule['run_as_user_id'] ?? 0),
+                    'item_filter'     => ($automationRule['item_filter'] ?? '') !== '' ? $automationRule['item_filter'] : null,
+                    'fire_condition'  => ($automationRule['fire_condition'] ?? '') !== '' ? $automationRule['fire_condition'] : null,
+                    'created'         => $now,
+                    'created_by'      => $user->id,
+                    'modified'        => $now,
+                    'modified_by'     => $user->id,
+                ];
+
+                $db->insertObject('#__workflow_automation_rules', $ruleRow);
+            }
+
+            $db->transactionCommit();
+        } catch (\Throwable $error) {
+            $db->transactionRollback();
+
+            throw $error;
+        }
+    }
+
+    /**
+     * Validates the automation rule data submitted with a transition.
+     *
+     * @param   array  $data  The automation sub-form data.
+     *
+     * @return  boolean  True if valid, false (with a message enqueued) otherwise.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function validateAutomationRule(array $data): bool
+    {
+        $app      = Factory::getApplication();
+        $ruleType = $data['rule_type'] ?? 'delay';
+
+        if (!\in_array($ruleType, ['delay', 'cron'], true)) {
+            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_RULE_TYPE'), 'error');
+
+            return false;
+        }
+
+        if ($ruleType === 'delay') {
+            if ((int) ($data['delay_value'] ?? 0) < 0) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_DELAY_VALUE'), 'error');
+
+                return false;
+            }
+
+            if (!\in_array($data['delay_unit'] ?? '', ['minutes', 'hours', 'days', 'months'], true)) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_DELAY_UNIT'), 'error');
+
+                return false;
+            }
+        }
+
+        if ($ruleType === 'cron') {
+            $expression = trim((string) ($data['cron_expression'] ?? ''));
+
+            if ($expression === '' || !CronExpression::isValidExpression($expression)) {
+                $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_CRON'), 'error');
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function validateAutomation(array $automationRule, int $transitionId): bool
+    {
+        if (empty($automationRule)) {
+            return true;
+        }
+
+        if (!$this->validateAutomationRule($automationRule)) {
+            return false;
+        }
+
+        $app         = Factory::getApplication();
+        $runAsUserId = (int) ($automationRule['run_as_user_id'] ?? 0);
+
+        if ($runAsUserId === 0) {
+            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_NO_RUN_AS'), 'error');
+
+            return false;
+        }
+
+        // Only a change of run-as user is checked, so editors can still maintain a rule that an
+        // administrator set up to run as someone above them.
+        if ($runAsUserId !== $this->storedRunAsUserId($transitionId) && !$this->mayDelegateTo($runAsUserId)) {
+            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_RUN_AS_TOO_HIGH'), 'error');
+
+            return false;
+        }
+
+        // Only a warning, because the permission is often granted after the rule is written.
+        if ($transitionId > 0 && !$this->canExecuteTransition($runAsUserId, $transitionId)) {
+            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_WARNING_RUN_AS_CANNOT_EXECUTE'), 'warning');
+        }
+
+        return true;
+    }
+
+    /**
+     * The run-as user already stored for this transition, or 0 when there is no rule yet.
+     *
+     * @param   integer  $transitionId  The transition being saved.
+     *
+     * @return  integer
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function storedRunAsUserId(int $transitionId): int
+    {
+        if ($transitionId <= 0) {
+            return 0;
+        }
+
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->select($db->quoteName('run_as_user_id'))
+            ->from($db->quoteName('#__workflow_automation_rules'))
+            ->where($db->quoteName('transition_id') . ' = :transitionId')
+            ->bind(':transitionId', $transitionId, ParameterType::INTEGER);
+
+        return (int) $db->setQuery($query)->loadResult();
+    }
+
+    /**
+     * Whether the current user may hand execution to this account.
+     *
+     * Every group the account belongs to must be one of the editor's own groups or an ancestor of
+     * one, because a child group inherits its parent's permissions and adds to them. This stops
+     * the obvious escalation but is not a proof, since explicit Deny settings can break the pattern.
+     *
+     * @param   integer  $candidateUserId  The account being named as the run-as user.
+     *
+     * @return  boolean
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function mayDelegateTo(int $candidateUserId): bool
+    {
+        $user = Factory::getApplication()->getIdentity();
+
+        if ((int) $user->id === $candidateUserId) {
+            return true;
+        }
+
+        if ($user->authorise('core.admin')) {
+            return true;
+        }
+
+        $parts     = explode('.', (string) Factory::getApplication()->getInput()->get('extension'));
+        $extension = array_shift($parts);
+        $candidate = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($candidateUserId);
+
+        if ((int) $candidate->id === $candidateUserId) {
+            $candidateOutranksEditor = $candidate->authorise('core.admin')
+                || ($candidate->authorise('core.admin', $extension) && !$user->authorise('core.admin', $extension));
+
+            if ($candidateOutranksEditor) {
+                return false;
+            }
+        }
+
+        $candidateGroups = Access::getGroupsByUser($candidateUserId, false);
+
+        if ($candidateGroups === []) {
+            return true;
+        }
+
+        $reachable = $this->groupsWithNoMorePermission(Access::getGroupsByUser((int) $user->id, false));
+
+        return array_diff($candidateGroups, $reachable) === [];
+    }
+
+    /**
+     * The groups that hold no more permission than the given ones, by tree position.
+     *
+     * @param   int[]  $groupIds  The editor's own groups.
+     *
+     * @return  int[]
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function groupsWithNoMorePermission(array $groupIds): array
+    {
+        if ($groupIds === []) {
+            return [];
+        }
+
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->select('DISTINCT ' . $db->quoteName('ancestor.id'))
+            ->from($db->quoteName('#__usergroups', 'own'))
+            ->join(
+                'INNER',
+                $db->quoteName('#__usergroups', 'ancestor'),
+                $db->quoteName('ancestor.lft') . ' <= ' . $db->quoteName('own.lft')
+                    . ' AND ' . $db->quoteName('ancestor.rgt') . ' >= ' . $db->quoteName('own.rgt')
+            )
+            ->whereIn($db->quoteName('own.id'), $groupIds);
+
+        return array_map('intval', $db->setQuery($query)->loadColumn());
+    }
+
+    /**
+     * Whether an account holds the permission the scheduler will need at run time.
+     *
+     * Asks the same question that Workflow::getValidTransition() asks at run time.
+     *
+     * @param   integer  $userId        The run-as account.
+     * @param   integer  $transitionId  The transition it would execute.
+     *
+     * @return  boolean
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function canExecuteTransition(int $userId, int $transitionId): bool
+    {
+        $runAsUser = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($userId);
+
+        if ((int) $runAsUser->id !== $userId) {
+            return false;
+        }
+
+        $parts = explode('.', (string) Factory::getApplication()->getInput()->get('extension'));
+
+        return $runAsUser->authorise('core.execute.transition', array_shift($parts) . '.transition.' . $transitionId);
     }
 }
