@@ -55,10 +55,6 @@ $user      = $this->getCurrentUser();
                                 $parts = explode('.', (string) $item->extension);
                                 $editLink = (!empty($parts[0]) && !empty($parts[1])) ? Route::_('index.php?option=' . $parts[0] . '&task=' . $parts[1] . '.edit&id=' . (int) $item->item_id) : '';
 
-                                // The title comes from the extension's own table, so it is not
-                                // always resolvable: an item deleted since the run, or an
-                                // extension that does not describe its table, leaves the id as
-                                // the only thing left to label the row with.
                                 $itemTitle = (string) ($item->item_title ?? '');
                                 $itemLabel = $itemTitle !== '' ? $itemTitle : (string) (int) $item->item_id;
 
@@ -84,8 +80,6 @@ $user      = $this->getCurrentUser();
                                             ? $this->escape(Text::_($item->transition_title))
                                             : (string) (int) $item->transition_id;
 
-                                        // A failed row is usually read in order to go and fix the
-                                        // rule behind it, so the transition is the useful link.
                                         $transitionEdit = $user->authorise('core.edit', $parts[0] . '.transition.' . (int) $item->transition_id)
                                             ? Route::_(
                                                 'index.php?option=com_workflow&task=transition.edit&id=' . (int) $item->transition_id

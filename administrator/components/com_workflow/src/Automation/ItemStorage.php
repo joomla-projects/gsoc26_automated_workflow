@@ -21,14 +21,6 @@ use Joomla\Database\DatabaseInterface;
 /**
  * Finds where an extension keeps its items, and which of them are trashed or archived.
  *
- * An editor who trashes or archives an item has taken it out of normal use. Automation
- * should leave both of them alone.
- * com_workflow has no business knowing the schema of every component that might use a
- * workflow, so everything here is asked rather than assumed.
- *
- * The result is one query per extension in a run, not one per item, which matches how the rest of
- * the automation engine batches its work.
- *
  * @since __DEPLOY_VERSION__
  */
 final class ItemStorage
@@ -40,9 +32,7 @@ final class ItemStorage
     private DatabaseInterface $database;
 
     /**
-     * Content type rows already looked up, keyed by extension. Null records an extension that
-     * is not registered as content type, so a second call does not repeat the query only to
-     * reach the same dead end.
+     * Content type rows already looked up, keyed by extension. Null means not registered.
      *
      * @var array<string, object|null>
      * @since __DEPLOY_VERSION__
@@ -62,10 +52,8 @@ final class ItemStorage
     /**
      * Which of these items are trashed or archived.
      *
-     * Returns only the ids that are trashed or archived, so the caller can subtract them. An
-     * extension this cannot answer for returns nothing, which deliberately means "carry on"
-     * rather than "exclude everything": being unable to tell must not silently stop automation
-     * for a whole component.
+     * An extension this cannot answer for returns nothing, so automation carries on rather than
+     * silently stopping for the whole component.
      *
      * @param   int[]   $itemIds    The items being considered.
      * @param   string  $extension  The workflow extension, e.g. com_content.article.
@@ -101,15 +89,6 @@ final class ItemStorage
 
     /**
      * The display title of each item, keyed by id.
-     *
-     * The upcoming-transitions views name the item a rule will act on, and reading that name
-     * needs the same two lookups as reading its state: which table the extension keeps its
-     * items in, and which column that extension calls a title. Articles store it in "title"
-     * while contacts, news feeds and banners store it in "name", and the extension's own Table
-     * class is the thing that knows.
-     *
-     * An extension this cannot answer for returns nothing, and the caller falls back to showing
-     * the item's id. A missing name is a cosmetic problem, never a reason to hide the row.
      *
      * @param   int[]   $itemIds    The items to name.
      * @param   string  $extension  The workflow extension, e.g. com_content.article.
@@ -152,9 +131,6 @@ final class ItemStorage
     /**
      * Fills in each row's item title, keyed by that row's own extension.
      *
-     * The title lives on whichever table the extension owns, so it cannot be joined. The query
-     * count follows the number of extensions in the set, never the number of rows.
-     *
      * @param   object[]  $rows  Rows carrying item_id and extension.
      *
      * @return  object[]
@@ -177,8 +153,7 @@ final class ItemStorage
 
         foreach ($itemIdsByExtension as $extension => $itemIds) {
             foreach ($this->titlesFor($itemIds, $extension) as $itemId => $title) {
-                // Keyed by extension and id together, because an item id is only unique within
-                // its own extension.
+                // An item id is only unique within its own extension.
                 $titles[$extension . '.' . $itemId] = $title;
             }
         }
@@ -192,11 +167,6 @@ final class ItemStorage
 
     /**
      * Where an extension keeps its own items: the table and its key column.
-     *
-     * Null when the extension is not registered as a content type, or when the registration
-     * names something that is not a plain table or column. Both values reach a query as
-     * identifiers, and they come out of the database rather than from this component, so they
-     * are checked rather than trusted.
      *
      * @param string $extension The workflow extension.
      *
@@ -214,9 +184,8 @@ final class ItemStorage
 
         $definition = json_decode((string) $contentType->table, true);
 
-        // Only the "special" entry is the extension's own table. The "common" one is always
-        // #__ucm_content, which is a different thing and is not reliably populated: this site
-        // has 11 rows there against 123 articles.
+        // Only the special table is the extension's own. The common one is always #__ucm_content,
+        // which is not reliably populated.
         $table = $definition['special']['dbtable'] ?? '';
         $key   = $definition['special']['key'] ?? '';
 
@@ -234,10 +203,7 @@ final class ItemStorage
     /**
      * Where an extension keeps its items and which column holds their titles.
      *
-     * locate() answers the first half and columnFor() the second; this pairs them so a caller
-     * that wants to search titles can build one subquery instead of pulling every matching id
-     * into PHP first. Every value returned has already been checked against a strict pattern,
-     * so it is safe to put through quoteName().
+     * Every value returned has been validated, so it is safe to pass through quoteName().
      *
      * @param   string  $extension  The workflow extension, e.g. com_content.article.
      *
@@ -266,11 +232,8 @@ final class ItemStorage
     /**
      * Which real column an extension uses for one of Joomla's logical field names.
      *
-     * Asks the extension's own Table class through getColumnAlias(), because the answer cannot
-     * be inferred from the columns present. #__contact_details has both a "published" column,
-     * which is the condition, and a "state" column, which is a postal address; and the item's
-     * name lives in "title" for articles but "name" for contacts. Only the component knows
-     * which is which, and Joomla already provides the way to ask.
+     * Asks the extension's Table class through getColumnAlias(), because guessing from the columns
+     * fails: #__contact_details has a "state" column that holds an address.
      *
      * @param   string  $extension  The workflow extension.
      * @param   string  $logicalName  A Joomla field name, for instance published or title.
@@ -290,9 +253,7 @@ final class ItemStorage
         $definition = json_decode((string) $contentType->table, true);
         $class      = ($definition['special']['prefix'] ?? '') . ($definition['special']['type'] ?? '');
 
-        // A registration can outlive the extension that wrote it, for instance after a failed
-        // uninstall, so the class is checked before it is built. Without this a stale row would
-        // take down every caller.
+        // A registration can outlive its extension, for instance after a failed uninstall.
         if (!\is_string($class) || $class === '' || !class_exists($class)) {
             return null;
         }
@@ -300,8 +261,7 @@ final class ItemStorage
         try {
             $table = new $class($this->database);
         } catch (\Throwable) {
-            // Table constructors vary between components and some take more than a driver.
-            // One that will not build on these terms is one this cannot ask, not an error.
+            // Some Table constructors need more than a database driver.
             return null;
         }
 
@@ -311,7 +271,7 @@ final class ItemStorage
 
         $column = $table->getColumnAlias($logicalName);
 
-        // Same reasoning as locate(): this reaches a query as an identifier.
+        // Validated because it reaches a query as an identifier.
         return preg_match('/^[a-zA-Z0-9_]+$/', (string) $column) ? (string) $column : null;
     }
 

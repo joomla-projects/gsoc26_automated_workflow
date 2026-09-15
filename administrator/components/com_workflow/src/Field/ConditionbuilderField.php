@@ -28,12 +28,8 @@ use Joomla\Event\DispatcherInterface;
 /**
  * Renders one automation condition builder.
  *
- * A single instance drives either the filter or the condition, chosen by the
- * field's `mode` attribute: `filter` exposes item properties (tag, category,
- * author group), `condition` exposes moment properties (day of week, date). The
- * whole interface is built client side, so this class only outputs a hidden
- * input carrying the stored JSON expression tree plus a configuration blob
- * describing the fields, operators and value choices the builder may offer.
+ * The mode attribute picks the filter, which offers item checks, or the condition, which offers
+ * moment checks. The builder itself is drawn by condition-builder.js from the config output here.
  *
  * @since  __DEPLOY_VERSION__
  */
@@ -95,10 +91,6 @@ class ConditionbuilderField extends FormField
     /**
      * The checks that may be offered here.
      *
-     * Joomla's own checks come from BuiltinConditionFields directly. The event is then
-     * dispatched so installed extensions can add their own, and the two lists are
-     * merged with the built-in ones taking precedence.
-     *
      * @return array<string, array> Check definitions keyed by name.
      *
      * @since __DEPLOY_VERSION__
@@ -118,16 +110,11 @@ class ConditionbuilderField extends FormField
             ['extension' => $extension]
         );
 
-        // From the container, not $app->getDispatcher(): that lives on EventAwareInterface,
-        // which is part of the 3.x compatibility layer and goes away in 7.0.
         Factory::getContainer()->get(DispatcherInterface::class)->dispatch($event->getName(), $event);
 
-        // Union rather than array_merge: where both declare the same name, the left
-        // operand's entry survives, so a built-in cannot be shadowed by an installed extension.
+        // Union, not array_merge, so a plugin cannot replace a built-in check of the same name.
         $fields = $builtInFields + $event->getFields();
 
-        // A filter says which items a rule covers, so it offers item checks. A
-        // condition says when a due rule may run, so it offers moment checks.
         $wantedScope = (string) $this->element['mode'] === 'filter'
             ? WorkflowConditionFieldsEvent::SCOPE_ITEM
             : WorkflowConditionFieldsEvent::SCOPE_MOMENT;
@@ -141,9 +128,6 @@ class ConditionbuilderField extends FormField
     /**
      * Works out which workflow extension the builder is being drawn for.
      *
-     * The request usually carries it, but a link can arrive with the parameter empty, so fall
-     * back to the workflow that owns this transition before giving up on a sensible default.
-     *
      * @param   \Joomla\CMS\Application\CMSApplicationInterface  $app  The application.
      *
      * @return  string
@@ -152,9 +136,8 @@ class ConditionbuilderField extends FormField
      */
     private function resolveExtension($app): string
     {
-        // The workflow row carries the full extension including the section, e.g.
-        // com_content.article. The request only carries the component part, because
-        // com_workflow splits the two, so prefer the stored value.
+        // Prefer the workflow row: it stores com_content.article, while the request may only carry
+        // com_content.
         $workflowId = (int) $app->getInput()->getInt('workflow_id');
 
         if ($workflowId > 0) {
@@ -200,10 +183,6 @@ class ConditionbuilderField extends FormField
     /**
      * The operators each check supports.
      *
-     * A plugin names the operators it wants but never implements them: the meaning of every
-     * operator stays here and in the evaluator, so the same comparison behaves identically
-     * whichever extension supplied the check.
-     *
      * @param   array  $fields  The available check definitions.
      *
      * @return  array<string, array<int, array<string, string>>>
@@ -232,8 +211,7 @@ class ConditionbuilderField extends FormField
 
         foreach ($fields as $field) {
             foreach ($field['operators'] as $operator) {
-                // Silently skip an operator this build does not know, so a plugin written
-                // against a newer Joomla degrades rather than breaking the whole builder.
+                // Skipped, so a check written for a newer Joomla does not break the builder.
                 if (!isset($operatorLabels[$operator])) {
                     continue;
                 }
@@ -332,9 +310,7 @@ class ConditionbuilderField extends FormField
     /**
      * What the browser needs to ask the server which items this filter matches.
      *
-     * Null for the condition field: "which items match" is a question about the
-     * filter, and a condition answers "when", which would flip depending on the day
-     * it was asked.
+     * Null for the condition field, which answers when a rule may run rather than which items match.
      *
      * @return array|null
      *

@@ -20,7 +20,6 @@ use Joomla\CMS\Router\Route;
         <div class="col-md-12">
             <div id="j-main-container" class="j-main-container">
                 <?php
-                // Rows span several workflows here, so name the owning workflow on each.
                 echo LayoutHelper::render(
                     'upcoming.table',
                     ['items' => $this->items, 'showWorkflow' => true],

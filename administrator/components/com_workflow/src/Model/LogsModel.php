@@ -144,8 +144,7 @@ class LogsModel extends ListModel
                         ->bind(':search', $search)
                         ->bind(':titleSearch', $search);
                 } else {
-                    // No extension in scope, or one that does not describe its own table, so the
-                    // note is all there is to match on.
+                    // Without a title table to search, only the note can match.
                     $automationLogQuery->where($db->quoteName('l.note') . ' LIKE :search')
                         ->bind(':search', $search);
                 }
@@ -188,11 +187,7 @@ class LogsModel extends ListModel
     /**
      * Clears the requires_intervention flag for an item so the scheduler retries it.
      *
-     * Checks the permission itself rather than trusting the caller. The controller checks too,
-     * and that is the one an administrator sees the message from, but a method that re-enables
-     * automation on an item has to be safe to call from anywhere. A future CLI command, a batch
-     * action or another extension would otherwise reach a privileged write with no check at all,
-     * and the only thing standing between them and it would be a habit.
+     * Checks the permission itself, so it is safe to call from anywhere, not only the controller.
      *
      * @param   integer  $itemId     The content item id.
      * @param   string   $extension  The workflow extension, e.g. com_content.article.

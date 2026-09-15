@@ -19,10 +19,7 @@ use Joomla\Database\ParameterType;
 /**
  * Answers which items an item filter would match, before the rule is saved.
  *
- * A filter matching nothing looks exactly like one that is not due yet, so without this an
- * administrator cannot tell a mistake from a wait. Evaluation goes through the same
- * ConditionEvaluator and ItemFieldResolver the scheduler uses; a preview that disagreed with the
- * run would be worse than no preview at all.
+ * Uses the same ConditionEvaluator and ItemFieldResolver as the scheduler.
  *
  * @since __DEPLOY_VERSION__
  */
@@ -36,8 +33,7 @@ final class FilterPreview
     public const DEFAULT_LIMIT = 200;
 
     /**
-     * How many matched items are described back to the caller. The scan cap already bounds this in
-     * practice; it exists so raising the scan cap cannot quietly grow the payload with it.
+     * How many matched items are described back to the caller, independent of the scan cap.
      *
      * @var    integer
      * @since  __DEPLOY_VERSION__
@@ -81,8 +77,6 @@ final class FilterPreview
         $empty      = ['scanned' => 0, 'matched' => 0, 'titles' => [], 'capped' => false];
         $evaluator  = new ConditionEvaluator();
 
-        // Parsed before anything queries the database, so an unreadable filter costs nothing, and
-        // parsed once rather than once per item in the stage.
         $filterTree = $evaluator->decode($filterJson);
         $transition = $this->describeTransition($transitionId);
         if ($transition === null) {
@@ -127,9 +121,7 @@ final class FilterPreview
     /**
      * Pairs each matched id with its title, so a caller can link to the item.
      *
-     * An id with no title is kept and labelled with the id itself. The title comes from the
-     * extension's own table, so it goes missing when an item was deleted after the scan, and
-     * dropping the row would silently shorten the list.
+     * An id with no title is labelled with the id rather than dropped.
      *
      * @param   ItemStorage  $itemStorage  Resolves titles for the extension.
      * @param   int[]        $matchedIds   Every id that passed the filter.
@@ -158,9 +150,8 @@ final class FilterPreview
     /**
      * The transition's source stage and the extension its workflow belongs to.
      *
-     * The extension is read from the workflow rather than accepted from the caller: com_workflow
-     * URLs carry it as either "com_content" or "com_content.article", and only the longer form
-     * matches what #__workflow_associations stores.
+     * The extension comes from the workflow, not the request, because URLs may carry only
+     * "com_content" while #__workflow_associations stores "com_content.article".
      *
      * @param   integer  $transitionId  The transition to describe.
      *

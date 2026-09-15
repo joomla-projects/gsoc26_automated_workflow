@@ -18,9 +18,6 @@ use Joomla\Component\Workflow\Administrator\Automation\RelativeTime;
 /**
  * Renders a table of upcoming automated transitions.
  *
- * Shared by the workflow's Upcoming Transitions tab and the extension-wide view, so both
- * describe a pending move the same way.
- *
  * @var   array  $displayData
  * @var   \Joomla\Component\Workflow\Administrator\Automation\UpcomingTransition[]  $items
  * @var   boolean  $showWorkflow  Whether to show the owning workflow as a column.
@@ -37,7 +34,6 @@ if (empty($items)) : ?>
     return;
 endif;
 
-// Map a delay unit onto its existing language label.
 $unitKeys = [
     'minutes' => 'COM_WORKFLOW_AUTOMATION_UNIT_MINUTES',
     'hours'   => 'COM_WORKFLOW_AUTOMATION_UNIT_HOURS',
@@ -101,9 +97,7 @@ $unitKeys = [
                     <?php endif; ?>
 
                     <?php
-                    // Shown whatever the status, not only under Rule error. A stored fault can sit
-                    // beside a perfectly good fire time when it belongs to another rule on the same
-                    // stage, one that lost the race to fire first but is still broken.
+                    // Shown whatever the status: the fault may belong to another rule on this stage.
                     if ($transition->failureReason !== '') : ?>
                         <div class="small text-warning-emphasis mt-1">
                             <span class="icon-warning" aria-hidden="true"></span>

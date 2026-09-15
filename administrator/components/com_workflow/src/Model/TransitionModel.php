@@ -167,8 +167,7 @@ class TransitionModel extends AdminModel
      */
     public function save($data)
     {
-        // Pull automation data out. The transition-level toggle decides whether a rule is kept:
-        // when it is off, an empty rule clears any existing one.
+        // Switching automation off saves an empty rule, which deletes the stored one.
         $automationData    = $data['automation'] ?? [];
         $automationEnabled = !empty($automationData['automation_enabled']);
         $automationRule    = $automationEnabled ? ($automationData['automation_rules'] ?? []) : [];
@@ -178,8 +177,6 @@ class TransitionModel extends AdminModel
             $automationRule['run_as_user_id'] = (int) ($automationData['run_as_user_id'] ?? 0);
         }
 
-        // Resolved here as well as at line 207, because the permission check below authorises
-        // against the transition's own asset and cannot wait.
         $transitionId = (int) ($data['id'] ?? $this->getState($this->getName() . '.id'));
 
         if (!$this->validateAutomation($automationRule, $transitionId)) {
@@ -241,11 +238,8 @@ class TransitionModel extends AdminModel
         try {
             $this->saveAutomationRule($pk, $automationRule);
         } catch (\Throwable $error) {
-            // parent::save() has already committed the transition, so there is nothing to undo
-            // here. saveAutomationRule() rolls its own transaction back, so the previously
-            // stored rule survives intact. What must not survive is the exception: unhandled it
-            // reaches the user as a 500 page that says nothing about which half of the save
-            // went through.
+            // The transition is already saved and the old rule survives the rollback, so report the
+            // error instead of letting it become a 500 page.
             $app->enqueueMessage(
                 Text::sprintf('COM_WORKFLOW_AUTOMATION_RULE_SAVE_FAILED', $error->getMessage()),
                 'error'
@@ -401,16 +395,13 @@ class TransitionModel extends AdminModel
         // Set the access control rules field component value.
         $form->setFieldAttribute('rules', 'component', $extension);
 
-        // The picker only offers accounts this editor could legitimately delegate to, so an
-        // impossible choice is never on the menu. validateAutomation() enforces the same rule on
-        // save, because a filtered picker is only HTML and the field can still be posted directly.
+        // Filtering the picker is only a convenience; validateAutomation() enforces the rule on save.
         $user = $this->getCurrentUser();
 
         if (!$user->authorise('core.admin')) {
             $reachable = $this->groupsWithNoMorePermission(Access::getGroupsByUser((int) $user->id, false));
 
-            // 0 is not a real group id, so an account somehow in no groups at all sees nobody
-            // rather than everybody.
+            // 0 is not a group id, so an account in no groups sees nobody rather than everybody.
             $form->setFieldAttribute(
                 'run_as_user_id',
                 'groups',
@@ -428,12 +419,6 @@ class TransitionModel extends AdminModel
     /**
      * Persists the automation rule for a transition, replacing whatever was there.
      *
-     * Delete-then-insert rather than update, because a transition carries at most one rule and
-     * the same call has to handle three cases: no rule before and one now, one before and a
-     * different one now, and one before and none now when the administrator switches automation
-     * off. A unique key on transition_id enforces the "at most one" so this cannot quietly
-     * discard a second rule that should never have existed.
-     *
      * @param   integer  $transitionId    The transition id.
      * @param   array    $automationRule  The submitted rule, or empty to clear.
      *
@@ -447,8 +432,6 @@ class TransitionModel extends AdminModel
         $user = Factory::getApplication()->getIdentity();
         $now  = Factory::getDate()->toSql();
 
-        // Replace: clear this transition's rule, then insert the submitted one if there is content.
-        // Wrapped in a transaction so a failure mid-save can't wipe the existing configuration.
         try {
             $db->transactionStart();
 
@@ -490,9 +473,6 @@ class TransitionModel extends AdminModel
 
     /**
      * Validates the automation rule data submitted with a transition.
-     *
-     * Form-level validation only runs in the browser; this guards the model when
-     * data arrives from any other path. Only enforced when automation is enabled.
      *
      * @param   array  $data  The automation sub-form data.
      *
@@ -540,7 +520,6 @@ class TransitionModel extends AdminModel
 
     private function validateAutomation(array $automationRule, int $transitionId): bool
     {
-        // No rule submitted (automation disabled or empty) is valid.
         if (empty($automationRule)) {
             return true;
         }
@@ -552,26 +531,21 @@ class TransitionModel extends AdminModel
         $app         = Factory::getApplication();
         $runAsUserId = (int) ($automationRule['run_as_user_id'] ?? 0);
 
-        // Refused rather than warned. A rule with no run-as user cannot execute, so saving one
-        // only defers the failure to the first scheduler run, where it surfaces as an email about
-        // a rule the administrator has already forgotten writing.
         if ($runAsUserId === 0) {
             $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_NO_RUN_AS'), 'error');
 
             return false;
         }
 
-        // Only a change is restricted. Someone editing a delay on a rule an administrator set up
-        // must not be blocked by a run-as user who outranks them, or the people who maintain the
-        // rest of a workflow cannot touch its automation at all.
+        // Only a change of run-as user is checked, so editors can still maintain a rule that an
+        // administrator set up to run as someone above them.
         if ($runAsUserId !== $this->storedRunAsUserId($transitionId) && !$this->mayDelegateTo($runAsUserId)) {
             $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_RUN_AS_TOO_HIGH'), 'error');
 
             return false;
         }
 
-        // A warning rather than a refusal: the permission is often granted after the rule is
-        // written, and refusing the save is the more disruptive of the two mistakes.
+        // Only a warning, because the permission is often granted after the rule is written.
         if ($transitionId > 0 && !$this->canExecuteTransition($runAsUserId, $transitionId)) {
             $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_WARNING_RUN_AS_CANNOT_EXECUTE'), 'warning');
         }
@@ -607,14 +581,9 @@ class TransitionModel extends AdminModel
     /**
      * Whether the current user may hand execution to this account.
      *
-     * Joomla's group tree runs the opposite way to intuition: a child group inherits its parent's
-     * permissions and adds to them, so descendants hold more rather than less. An account is only
-     * safe to delegate to when every group it belongs to is one of the editor's own groups or an
-     * ancestor of one.
-     *
-     * A proxy rather than a proof, since an explicit Deny can leave a descendant with fewer rights
-     * than its parent. It stops the obvious escalation; canExecuteTransition() decides whether the
-     * rule can actually run.
+     * Every group the account belongs to must be one of the editor's own groups or an ancestor of
+     * one, because a child group inherits its parent's permissions and adds to them. This stops
+     * the obvious escalation but is not a proof, since explicit Deny settings can break the pattern.
      *
      * @param   integer  $candidateUserId  The account being named as the run-as user.
      *
@@ -634,8 +603,6 @@ class TransitionModel extends AdminModel
             return true;
         }
 
-        // Two separate ways a candidate can outrank the editor. A Super User is never a legitimate
-        // target for anyone who is not one.
         $parts     = explode('.', (string) Factory::getApplication()->getInput()->get('extension'));
         $extension = array_shift($parts);
         $candidate = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($candidateUserId);
@@ -693,8 +660,7 @@ class TransitionModel extends AdminModel
     /**
      * Whether an account holds the permission the scheduler will need at run time.
      *
-     * Asks exactly what Workflow::getValidTransition() asks, so a rule that saves cleanly is one
-     * that can actually fire.
+     * Asks the same question that Workflow::getValidTransition() asks at run time.
      *
      * @param   integer  $userId        The run-as account.
      * @param   integer  $transitionId  The transition it would execute.

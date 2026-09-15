@@ -368,8 +368,7 @@ Joomla = window.Joomla || {};
         labelDiv = foreignObject.querySelector("div");
       }
 
-      // Rebuilt rather than appended to: textContent wipes children, so the icon has to go in
-      // here or it is destroyed on the next render pass.
+      // Rebuilt each render, because setting textContent removes the icon.
       labelDiv.textContent = "";
 
       if (edge.automated) {

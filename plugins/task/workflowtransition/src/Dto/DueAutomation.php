@@ -17,9 +17,6 @@ namespace Joomla\Plugin\Task\WorkflowTransition\Dto;
 /**
  * One automation rule that is due to be considered for a single item this run.
  *
- * A typed value object built from a joined schedule/transition/rule row, so the
- * scheduler works with known properties instead of an untyped stdClass.
- *
  * @since  __DEPLOY_VERSION__
  */
 final class DueAutomation

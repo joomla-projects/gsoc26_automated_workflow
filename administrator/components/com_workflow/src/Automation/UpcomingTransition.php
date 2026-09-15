@@ -17,10 +17,6 @@ namespace Joomla\Component\Workflow\Administrator\Automation;
 /**
  * One item's next automated transition, as shown in the upcoming-transitions view.
  *
- * A plain data holder built by the UpcomingTransitionsCalculator. It carries the raw facts
- * (stages, fire time, trigger, status) and lets the template do the formatting, so no
- * presentation or language logic leaks into the engine.
- *
  * @since  __DEPLOY_VERSION__
  */
 
@@ -34,18 +30,15 @@ final class UpcomingTransition
      * @param   string          $fromStage       Title of the stage the item is leaving.
      * @param   string          $toStage         Title of the stage the item moves to.
      * @param   \DateTime|null  $firesAt         When the move is due (UTC), or null if uncomputable.
-     * @param   string          $status          scheduled | needs_attention | not_scheduled.
+     * @param   string          $status          scheduled | needs_attention | not_scheduled | rule_error.
      * @param   string          $failureReason   Why the rule could not be read, or '' when it could.
-     * @param   \DateTime|null  $failedAt        When the scheduler last hit that fault, or null when
-     * the fault is one this render found for itself.
+     * @param   \DateTime|null  $failedAt        When the scheduler stored the fault, or null if found now.
      * @param   string          $ruleType        delay | cron.
      * @param   integer|null    $delayValue      Delay amount for a delay rule.
      * @param   string|null     $delayUnit       minutes | hours | days | months.
      * @param   string|null     $cronExpression  Cron expression for a cron rule.
      * @param   boolean         $hasCondition    Whether a fire condition gates this move.
-     * @param   string          $workflowTitle   Title of the owning workflow. Only filled in by
-     *                                           the extension-wide query, where rows come from
-     *                                           several workflows and need telling apart.
+     * @param   string          $workflowTitle   Owning workflow, set by the extension-wide query only.
      *
      * @since   __DEPLOY_VERSION__
      */
