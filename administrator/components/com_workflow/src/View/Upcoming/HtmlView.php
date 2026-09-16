@@ -44,6 +44,30 @@ class HtmlView extends BaseHtmlView
     protected $state;
 
     /**
+     * The pagination object.
+     *
+     * @var    \Joomla\CMS\Pagination\Pagination
+     * @since  __DEPLOY_VERSION__
+     */
+    protected $pagination;
+
+    /**
+     * The filter form.
+     *
+     * @var    \Joomla\CMS\Form\Form
+     * @since  __DEPLOY_VERSION__
+     */
+    public $filterForm;
+
+    /**
+     * The active filters.
+     *
+     * @var    array
+     * @since  __DEPLOY_VERSION__
+     */
+    public $activeFilters = [];
+
+    /**
      * Display the view.
      *
      * @param   string  $tpl  The name of the template file to parse.
@@ -57,8 +81,14 @@ class HtmlView extends BaseHtmlView
         /** @var UpcomingModel $model */
         $model = $this->getModel();
 
-        $this->state = $model->getState();
-        $this->items = $model->getItems();
+        $this->state         = $model->getState();
+        $this->items         = $model->getItems();
+        $this->pagination    = $model->getPagination();
+        $this->filterForm    = $model->getFilterForm();
+        $this->activeFilters = $model->getActiveFilters();
+
+        // Keeps the extension on the form when the filter bar submits it.
+        $this->filterForm->addControlField('extension', (string) $this->state->get('filter.extension'));
 
         $this->addToolbar();
 

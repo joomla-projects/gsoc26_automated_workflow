@@ -10,15 +10,17 @@
 
 defined('_JEXEC') or die;
 
+use Joomla\CMS\HTML\HTMLHelper;
 use Joomla\CMS\Layout\LayoutHelper;
 use Joomla\CMS\Router\Route;
 
 /** @var \Joomla\Component\Workflow\Administrator\View\Upcoming\HtmlView $this */
 ?>
-<form action="<?php echo Route::_('index.php?option=com_workflow&view=upcoming'); ?>" method="post" name="adminForm" id="adminForm">
+<form action="<?php echo Route::_('index.php?option=com_workflow&view=upcoming&extension=' . $this->escape((string) $this->state->get('filter.extension'))); ?>" method="post" name="adminForm" id="adminForm">
     <div class="row">
         <div class="col-md-12">
             <div id="j-main-container" class="j-main-container">
+                <?php echo LayoutHelper::render('joomla.searchtools.default', ['view' => $this]); ?>
                 <?php
                 echo LayoutHelper::render(
                     'upcoming.table',
@@ -26,7 +28,12 @@ use Joomla\CMS\Router\Route;
                     JPATH_ADMINISTRATOR . '/components/com_workflow/layouts'
                 );
                 ?>
+                <?php echo $this->pagination->getListFooter(); ?>
             </div>
         </div>
     </div>
+    <input type="hidden" name="task" value="">
+    <?php // Set by the pagination links, which do document.adminForm.limitstart.value = n.
+    ?>
+    <?php echo HTMLHelper::_('form.token'); ?>
 </form>

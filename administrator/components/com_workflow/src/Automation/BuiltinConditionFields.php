@@ -132,7 +132,7 @@ final class BuiltinConditionFields
                     WorkflowConditionFieldsEvent::OPERATOR_HAS_ALL,
                     WorkflowConditionFieldsEvent::OPERATOR_HAS_NONE,
                 ],
-                WorkflowConditionFieldsEvent::VALUE_SELECT,
+                WorkflowConditionFieldsEvent::VALUE_MULTISELECT,
                 $this->getUserGroupOptions()
             );
         }

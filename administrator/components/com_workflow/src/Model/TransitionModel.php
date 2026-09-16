@@ -395,13 +395,12 @@ class TransitionModel extends AdminModel
         // Set the access control rules field component value.
         $form->setFieldAttribute('rules', 'component', $extension);
 
-        // Filtering the picker is only a convenience; validateAutomation() enforces the rule on save.
         $user = $this->getCurrentUser();
 
         if (!$user->authorise('core.admin')) {
             $reachable = $this->groupsWithNoMorePermission(Access::getGroupsByUser((int) $user->id, false));
 
-            // 0 is not a group id, so an account in no groups sees nobody rather than everybody.
+            // Group id 0 does not exist, so a user allowed to delegate to nobody gets an empty picker.
             $form->setFieldAttribute(
                 'run_as_user_id',
                 'groups',
@@ -537,9 +536,9 @@ class TransitionModel extends AdminModel
             return false;
         }
 
-        // Only a change of run-as user is checked, so editors can still maintain a rule that an
-        // administrator set up to run as someone above them.
-        if ($runAsUserId !== $this->storedRunAsUserId($transitionId) && !$this->mayDelegateTo($runAsUserId)) {
+        // Checked on every save, not only when the field changes. The whole rule body is what runs
+        // with this user's permissions, so an editor who may not delegate here may not edit it at all.
+        if (!$this->mayDelegateTo($runAsUserId)) {
             $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_RUN_AS_TOO_HIGH'), 'error');
 
             return false;
@@ -551,31 +550,6 @@ class TransitionModel extends AdminModel
         }
 
         return true;
-    }
-
-    /**
-     * The run-as user already stored for this transition, or 0 when there is no rule yet.
-     *
-     * @param   integer  $transitionId  The transition being saved.
-     *
-     * @return  integer
-     *
-     * @since   __DEPLOY_VERSION__
-     */
-    private function storedRunAsUserId(int $transitionId): int
-    {
-        if ($transitionId <= 0) {
-            return 0;
-        }
-
-        $db    = $this->getDatabase();
-        $query = $db->getQuery(true)
-            ->select($db->quoteName('run_as_user_id'))
-            ->from($db->quoteName('#__workflow_automation_rules'))
-            ->where($db->quoteName('transition_id') . ' = :transitionId')
-            ->bind(':transitionId', $transitionId, ParameterType::INTEGER);
-
-        return (int) $db->setQuery($query)->loadResult();
     }
 
     /**
