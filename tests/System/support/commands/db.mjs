@@ -113,6 +113,9 @@ Cypress.Commands.add('db_createArticle', (articleData) => {
     metadata: '',
   };
 
+  const tags = articleData.tags ?? [];
+  delete articleData.tags;
+
   const article = { ...defaultArticleOptions, ...articleData };
 
   return getDefaultCategoryId('com_content')
@@ -128,6 +131,9 @@ Cypress.Commands.add('db_createArticle', (articleData) => {
       if (article.featured === 1) {
         await cy.task('queryDB', `INSERT INTO #__content_frontpage (content_id, ordering) VALUES ('${article.id}', '1')`);
       }
+      tags.forEach(async (tag) => {
+        await cy.task('queryDB', `INSERT INTO #__contentitem_tag_map (type_alias, core_content_id, content_item_id, tag_id, tag_date, type_id) VALUES ('com_content.article', '0', '${article.id}', '${tag}', '2026-08-29 11:00:00', '1')`);
+      });
       await cy.task('queryDB', `INSERT INTO #__workflow_associations (item_id, stage_id, extension) VALUES (${article.id}, 1, 'com_content.article')`);
 
       return article;
@@ -293,7 +299,7 @@ Cypress.Commands.add('db_createNewsFeed', (newsFeedData) => {
  *
  * @returns integer
  */
-Cypress.Commands.add('db_createCategory', (category) => {
+Cypress.Commands.add('db_createCategory', (categoryData) => {
   const defaultCategoryOptions = {
     title: 'test category',
     alias: 'test-category',
@@ -304,14 +310,47 @@ Cypress.Commands.add('db_createCategory', (category) => {
     params: '',
     parent_id: 1,
     level: 1,
-    lft: 1,
+    lft: 0,
+    rgt: 0,
     metadata: '',
     metadesc: '',
     created_time: '2023-01-01 20:00:00',
     modified_time: '2023-01-01 20:00:00',
   };
 
-  return cy.task('queryDB', createInsertQuery('categories', { ...defaultCategoryOptions, ...category })).then(async (info) => info.insertId);
+  // Create space for rgt and lft
+  return cy.task('queryDB', 'SELECT rgt FROM #__categories WHERE id = 1').then((myrgt) => {
+    const lftVal = myrgt[0].rgt;
+    const rgtVal = myrgt[0].rgt + 1;
+
+    const finalCategory = {
+      ...defaultCategoryOptions,
+      lft: lftVal,
+      rgt: rgtVal,
+      ...categoryData,
+    };
+
+    return cy.task('queryDB', `UPDATE #__categories SET rgt = rgt + 2 WHERE rgt >= '${lftVal}'`)
+      .then(() => cy.task('queryDB', `UPDATE #__categories SET lft = lft + 2 WHERE lft > '${rgtVal}'`))
+      .then(() => cy.task('queryDB', createInsertQuery('categories', finalCategory)))
+      .then((info) => info.insertId);
+  });
+});
+
+/**
+ * Delete a category item in the database with the given title.
+ *
+ * @param {Object} categoryTitle The category title to delete
+ *
+ */
+Cypress.Commands.add('db_deleteCategory', (categoryTitle) => {
+  cy.task('queryDB', `SELECT lft, rgt, (rgt - lft) +1 AS width FROM #__categories WHERE title = '${categoryTitle.title}'`).then((record) => {
+    if (record.length > 0) {
+      cy.task('queryDB', `DELETE FROM #__categories WHERE lft BETWEEN '${record[0].lft}' AND '${record[0].rgt}'`)
+        .then(() => cy.task('queryDB', `UPDATE #__categories SET lft = lft - '${record[0].width}' WHERE lft > '${record[0].rgt}'`))
+        .then(() => cy.task('queryDB', `UPDATE #__categories SET rgt = rgt - '${record[0].width}' WHERE rgt > '${record[0].rgt}'`));
+    }
+  });
 });
 
 /**
@@ -471,6 +510,11 @@ Cypress.Commands.add('db_createMenuItem', (menuItemData) => {
     defaultMenuItemOptions.rgt = myrgt[0].rgt + 1;
 
     const menuItem = { ...defaultMenuItemOptions, ...menuItemData };
+    ['params'].forEach((key) => {
+      if (typeof menuItem[key] === 'object') {
+        menuItem[key] = JSON.stringify(menuItem[key]);
+      }
+    });
     // Extract the component from the link
     const component = (new URLSearchParams(menuItem.link.replace('index.php', ''))).get('option');
     return cy.task('queryDB', `SELECT extension_id FROM #__extensions WHERE name = '${component}'`).then((id) => {

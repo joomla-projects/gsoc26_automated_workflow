@@ -371,47 +371,51 @@ $assoc = Associations::isEnabled();
                                                 ?>
                                             </div>
                                         </div>
-                                    </th>
-                                    <td class="small d-none d-md-table-cell">
-                                        <?php echo $this->escape($item->access_level); ?>
-                                    </td>
-                                    <td class="small d-none d-md-table-cell">
-                                        <?php if (!empty($item->author_name)) : ?>
+                                </th>
+                                <td class="small d-none d-md-table-cell">
+                                    <?php echo $this->escape($item->access_level); ?>
+                                </td>
+                                <td class="small d-none d-md-table-cell">
+                                    <?php if (!empty($item->author_name)) : ?>
+                                        <?php if ($item->created_by == $userId || ($user->authorise('core.manage', 'com_users') && $user->authorise('core.edit', 'com_users'))) : ?>
                                             <a href="<?php echo Route::_('index.php?option=com_users&task=user.edit&id=' . (int) $item->created_by); ?>">
                                                 <?php echo $this->escape($item->author_name); ?>
                                             </a>
                                         <?php else : ?>
-                                            [ <?php echo Text::_('JNONE'); ?> ]
+                                            <?php echo $this->escape($item->author_name); ?>
                                         <?php endif; ?>
-                                        <?php if ($item->created_by_alias) : ?>
-                                            <div class="smallsub"><?php echo Text::sprintf('JGLOBAL_LIST_ALIAS', $this->escape($item->created_by_alias)); ?></div>
+                                    <?php else : ?>
+                                        [ <?php echo Text::_('JNONE'); ?> ]
+                                    <?php endif; ?>
+                                    <?php if ($item->created_by_alias) : ?>
+                                        <div class="smallsub"><?php echo Text::sprintf('JGLOBAL_LIST_ALIAS', $this->escape($item->created_by_alias)); ?></div>
+                                    <?php endif; ?>
+                                </td>
+                                <?php if ($assoc) : ?>
+                                    <td class="d-none d-md-table-cell">
+                                        <?php if ($item->association) : ?>
+                                            <?php echo HTMLHelper::_('contentadministrator.association', $item->id); ?>
                                         <?php endif; ?>
                                     </td>
-                                    <?php if ($assoc) : ?>
-                                        <td class="d-none d-md-table-cell">
-                                            <?php if ($item->association) : ?>
-                                                <?php echo HTMLHelper::_('contentadministrator.association', $item->id); ?>
-                                            <?php endif; ?>
-                                        </td>
-                                    <?php endif; ?>
-                                    <?php if (Multilanguage::isEnabled()) : ?>
-                                        <td class="small d-none d-md-table-cell">
-                                            <?php echo LayoutHelper::render('joomla.content.language', $item); ?>
-                                        </td>
-                                    <?php endif; ?>
-                                    <td class="small d-none d-md-table-cell text-center">
-                                        <?php
-                                        $date = $item->{$orderingColumn};
-                                        echo $date > 0 ? HTMLHelper::_('date', $date, Text::_('DATE_FORMAT_LC4')) : '-';
-                                        ?>
+                                <?php endif; ?>
+                                <?php if (Multilanguage::isEnabled()) : ?>
+                                    <td class="small d-none d-md-table-cell">
+                                        <?php echo LayoutHelper::render('joomla.content.language', $item); ?>
                                     </td>
-                                    <?php if ($this->hits) : ?>
-                                        <td class="d-none d-lg-table-cell text-center">
-                                            <span class="badge bg-info">
-                                                <?php echo (int) $item->hits; ?>
-                                            </span>
-                                        </td>
-                                    <?php endif; ?>
+                                <?php endif; ?>
+                                <td class="small d-none d-md-table-cell text-center">
+                                    <?php
+                                    $date = $item->{$orderingColumn};
+                                    echo $date > 0 ? HTMLHelper::_('date', $date, Text::_('DATE_FORMAT_LC4')) : '-';
+                                    ?>
+                                </td>
+                                <?php if ($this->hits) : ?>
+                                    <td class="d-none d-lg-table-cell text-center">
+                                        <span class="badge bg-info">
+                                            <?php echo (int) $item->hits; ?>
+                                        </span>
+                                    </td>
+                                <?php endif; ?>
                                     <?php if ($this->vote) : ?>
                                         <td class="d-none d-md-table-cell text-center">
                                             <span class="badge bg-success">
