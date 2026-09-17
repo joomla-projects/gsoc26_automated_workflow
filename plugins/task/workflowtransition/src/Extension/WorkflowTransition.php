@@ -143,7 +143,10 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     {
         $now         = Factory::getDate()->toSql();
         $nowDateTime = new \DateTime($now, new \DateTimeZone('UTC'));
-        $candidates  = $this->fetchCandidates();
+
+        $this->reconcileItemStates($now);
+
+        $candidates = $this->fetchCandidates();
 
         if (empty($candidates)) {
             return TaskStatus::OK;
@@ -238,6 +241,87 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         }
 
         return TaskStatus::OK;
+    }
+
+    /**
+     * Brings #__workflow_item_state back in line with core's #__workflow_associations.
+     *
+     * Core records an item's stage in its association row even while workflows are switched off, but
+     * a state row is only written when the automation plugin sees the change happen. Items created
+     * while workflows were off, moved by a batch stage change, imported straight into the database or
+     * older than this feature would otherwise stay invisible to automation, or be judged by a stage
+     * they have left. As in the upgrade backfill, entered_at is the time of the repair: nothing records
+     * when the item really reached its stage, and an earlier guess would make it overdue at once.
+     *
+     * @param   string  $now  The run time, as SQL.
+     *
+     * @return  void
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function reconcileItemStates(string $now): void
+    {
+        $db = $this->getDatabase();
+
+        $untracked = $db->getQuery(true)
+            ->select([
+                $db->quoteName('wa.item_id'),
+                $db->quoteName('wa.extension'),
+                $db->quoteName('wa.stage_id'),
+                $db->quote($now),
+                $db->quote('manual'),
+            ])
+            ->from($db->quoteName('#__workflow_associations', 'wa'))
+            ->join(
+                'LEFT',
+                $db->quoteName('#__workflow_item_state', 'wis'),
+                $db->quoteName('wis.item_id') . ' = ' . $db->quoteName('wa.item_id')
+                    . ' AND ' . $db->quoteName('wis.extension') . ' = ' . $db->quoteName('wa.extension')
+            )
+            ->where($db->quoteName('wis.id') . ' IS NULL');
+
+        $columns = $db->quoteName(['item_id', 'extension', 'stage_id', 'entered_at', 'triggered_by']);
+
+        $db->setQuery(
+            'INSERT INTO ' . $db->quoteName('#__workflow_item_state') . ' (' . implode(', ', $columns) . ') ' . $untracked
+        )->execute();
+
+        $movedRows = $db->setQuery(
+            $db->getQuery(true)
+                ->select([$db->quoteName('wis.id'), $db->quoteName('wa.stage_id')])
+                ->from($db->quoteName('#__workflow_item_state', 'wis'))
+                ->join(
+                    'INNER',
+                    $db->quoteName('#__workflow_associations', 'wa'),
+                    $db->quoteName('wa.item_id') . ' = ' . $db->quoteName('wis.item_id')
+                        . ' AND ' . $db->quoteName('wa.extension') . ' = ' . $db->quoteName('wis.extension')
+                )
+                ->where($db->quoteName('wa.stage_id') . ' <> ' . $db->quoteName('wis.stage_id'))
+        )->loadAssocList();
+
+        $itemStateIdsByStage = [];
+
+        foreach ($movedRows as $movedRow) {
+            $itemStateIdsByStage[(int) $movedRow['stage_id']][] = (int) $movedRow['id'];
+        }
+
+        foreach ($itemStateIdsByStage as $stageId => $itemStateIds) {
+            foreach (array_chunk($itemStateIds, self::MAX_CANDIDATES_PER_RUN) as $chunk) {
+                $db->setQuery(
+                    $db->getQuery(true)
+                        ->update($db->quoteName('#__workflow_item_state'))
+                        ->set($db->quoteName('stage_id') . ' = ' . $stageId)
+                        ->set($db->quoteName('entered_at') . ' = ' . $db->quote($now))
+                        ->set($db->quoteName('triggered_by') . ' = ' . $db->quote('manual'))
+                        // The rest describes the stage the item has left, so it is cleared as on a transition.
+                        ->set($db->quoteName('requires_intervention') . ' = 0')
+                        ->set($db->quoteName('last_checked_at') . ' = NULL')
+                        ->set($db->quoteName('last_failure_at') . ' = NULL')
+                        ->set($db->quoteName('last_failure_reason') . ' = NULL')
+                        ->whereIn($db->quoteName('id'), $chunk)
+                )->execute();
+            }
+        }
     }
 
     /**
