@@ -271,8 +271,8 @@ final class UpcomingTransitionsCalculator
     /**
      * The item state rows that could produce an upcoming transition, with no scope clause yet.
      *
-     * Carries the same three published checks as baseRowsQuery(), so a count taken here and a
-     * page of rows taken there cannot disagree about what is live.
+     * Goes through joinLiveRules() like baseRowsQuery(), so a count taken here and a page of rows
+     * taken there cannot disagree about what is live.
      *
      * @return  QueryInterface
      *
@@ -282,12 +282,47 @@ final class UpcomingTransitionsCalculator
     {
         $db = $this->database;
 
-        return $db->getQuery(true)
-            ->from($db->quoteName('#__workflow_item_state', 'wis'))
+        return $this->joinLiveRules($db->getQuery(true)->from($db->quoteName('#__workflow_item_state', 'wis')));
+    }
+
+    /**
+     * Joins item state rows to the live rules that could move them, matching the scheduler.
+     *
+     * A transition from any stage has from_stage_id -1 and applies to every item in its own workflow.
+     * A rule that has already run for an item since the item entered its current stage is left out,
+     * because the scheduler runs each rule once per stay in a stage.
+     *
+     * @param   QueryInterface  $query  A query selecting from #__workflow_item_state as wis.
+     *
+     * @return  QueryInterface
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function joinLiveRules(QueryInterface $query): QueryInterface
+    {
+        $db = $this->database;
+
+        // 0 is a successful run in #__workflow_automation_log.exit_code.
+        $alreadyRan = $db->getQuery(true)
+            ->select('1')
+            ->from($db->quoteName('#__workflow_automation_log', 'wal'))
+            ->where($db->quoteName('wal.rule_id') . ' = ' . $db->quoteName('war.id'))
+            ->where($db->quoteName('wal.item_id') . ' = ' . $db->quoteName('wis.item_id'))
+            ->where($db->quoteName('wal.extension') . ' = ' . $db->quoteName('wis.extension'))
+            ->where($db->quoteName('wal.exit_code') . ' = 0')
+            ->where($db->quoteName('wal.executed_at') . ' >= ' . $db->quoteName('wis.entered_at'));
+
+        return $query
+            ->join(
+                'INNER',
+                $db->quoteName('#__workflow_stages', 'ws'),
+                $db->quoteName('ws.id') . ' = ' . $db->quoteName('wis.stage_id')
+            )
             ->join(
                 'INNER',
                 $db->quoteName('#__workflow_transitions', 'wt'),
-                $db->quoteName('wt.from_stage_id') . ' = ' . $db->quoteName('wis.stage_id')
+                $db->quoteName('wt.workflow_id') . ' = ' . $db->quoteName('ws.workflow_id')
+                    . ' AND ' . $db->quoteName('wt.from_stage_id') . ' IN (' . $db->quoteName('wis.stage_id') . ', -1)'
             )
             ->join(
                 'INNER',
@@ -301,7 +336,8 @@ final class UpcomingTransitionsCalculator
             )
             ->where($db->quoteName('w.published') . ' = 1')
             ->where($db->quoteName('wt.published') . ' = 1')
-            ->where($db->quoteName('war.published') . ' = 1');
+            ->where($db->quoteName('war.published') . ' = 1')
+            ->where('NOT EXISTS (' . $alreadyRan . ')');
     }
 
     /**
@@ -329,6 +365,9 @@ final class UpcomingTransitionsCalculator
         )
             ->order($db->quoteName('wis.requires_intervention') . ' DESC')
             ->order($db->quoteName('wis.entered_at') . ' ASC')
+            // Unique last key: items that entered at the same second would otherwise swap places between
+            // pages, repeating one item and skipping another.
+            ->order($db->quoteName('wis.id') . ' ASC')
             ->setLimit($limit, $start);
 
         return array_map('intval', $db->setQuery($scope)->loadColumn());
@@ -350,6 +389,7 @@ final class UpcomingTransitionsCalculator
 
         return $query->order($db->quoteName('wis.requires_intervention') . ' DESC')
             ->order($db->quoteName('wis.entered_at') . ' ASC')
+            ->order($db->quoteName('wis.id') . ' ASC')
             ->order($db->quoteName('wt.ordering') . ' ASC');
     }
 
@@ -435,9 +475,8 @@ final class UpcomingTransitionsCalculator
      */
     private function baseRowsQuery(): QueryInterface
     {
-        $db = $this->database;
-
-        return $db->getQuery(true)
+        $db    = $this->database;
+        $query = $db->getQuery(true)
             ->select(
                 [
                     $db->quoteName('wis.item_id'),
@@ -447,9 +486,10 @@ final class UpcomingTransitionsCalculator
                     $db->quoteName('wis.last_failure_at'),
                     $db->quoteName('wis.last_failure_reason'),
                     $db->quoteName('wt.id', 'transition_id'),
-                    $db->quoteName('wt.from_stage_id'),
+                    // The item's own stage, since a transition from any stage stores -1 as its from stage.
+                    $db->quoteName('wis.stage_id', 'from_stage_id'),
                     $db->quoteName('wt.to_stage_id'),
-                    $db->quoteName('sfrom.title', 'from_stage_title'),
+                    $db->quoteName('ws.title', 'from_stage_title'),
                     $db->quoteName('sto.title', 'to_stage_title'),
                     $db->quoteName('war.rule_type'),
                     $db->quoteName('war.delay_value'),
@@ -460,37 +500,14 @@ final class UpcomingTransitionsCalculator
                     $db->quoteName('wt.ordering'),
                 ]
             )
-            ->from($db->quoteName('#__workflow_item_state', 'wis'))
-            ->join(
-                'INNER',
-                $db->quoteName('#__workflow_transitions', 'wt'),
-                $db->quoteName('wt.from_stage_id') . ' = ' . $db->quoteName('wis.stage_id')
-            )
-            ->join(
-                'INNER',
-                $db->quoteName('#__workflow_automation_rules', 'war'),
-                $db->quoteName('war.transition_id') . ' = ' . $db->quoteName('wt.id')
-            )
-            ->join(
-                'LEFT',
-                $db->quoteName('#__workflow_stages', 'sfrom'),
-                $db->quoteName('sfrom.id') . ' = ' . $db->quoteName('wt.from_stage_id')
-            )
+            ->from($db->quoteName('#__workflow_item_state', 'wis'));
+
+        return $this->joinLiveRules($query)
             ->join(
                 'LEFT',
                 $db->quoteName('#__workflow_stages', 'sto'),
                 $db->quoteName('sto.id') . ' = ' . $db->quoteName('wt.to_stage_id')
-            )
-            ->join(
-                'INNER',
-                $db->quoteName('#__workflows', 'w'),
-                $db->quoteName('w.id') . ' = ' . $db->quoteName('wt.workflow_id')
-            )
-
-            // The same three checks the scheduler applies.
-            ->where($db->quoteName('w.published') . ' = 1')
-            ->where($db->quoteName('wt.published') . ' = 1')
-            ->where($db->quoteName('war.published') . ' = 1');
+            );
     }
 
     /**

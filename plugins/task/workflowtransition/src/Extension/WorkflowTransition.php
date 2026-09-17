@@ -254,11 +254,20 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     {
         $db = $this->getDatabase();
 
+        $alreadyRan = $db->getQuery(true)
+            ->select('1')
+            ->from($db->quoteName('#__workflow_automation_log', 'wal'))
+            ->where($db->quoteName('wal.rule_id') . ' = ' . $db->quoteName('war.id'))
+            ->where($db->quoteName('wal.item_id') . ' = ' . $db->quoteName('wis.item_id'))
+            ->where($db->quoteName('wal.extension') . ' = ' . $db->quoteName('wis.extension'))
+            ->where($db->quoteName('wal.exit_code') . ' = ' . self::EXIT_OK)
+            ->where($db->quoteName('wal.executed_at') . ' >= ' . $db->quoteName('wis.entered_at'));
+
         $overduePairsQuery = $db->getQuery(true)
             ->select([
                 $db->quoteName('war.id', 'rule_id'),
                 $db->quoteName('war.transition_id'),
-                $db->quoteName('wt.from_stage_id'),
+                $db->quoteName('wis.stage_id', 'from_stage_id'),
                 $db->quoteName('wt.to_stage_id'),
                 $db->quoteName('war.delay_value'),
                 $db->quoteName('war.delay_unit'),
@@ -277,8 +286,16 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->from($db->quoteName('#__workflow_item_state', 'wis'))
             ->join(
                 'INNER',
+                $db->quoteName('#__workflow_stages', 'ws'),
+                $db->quoteName('ws.id') . ' = ' . $db->quoteName('wis.stage_id')
+            )
+            // A transition from any stage has from_stage_id -1 and applies to every item in its own
+            // workflow, the same set core offers it to by hand.
+            ->join(
+                'INNER',
                 $db->quoteName('#__workflow_transitions', 'wt'),
-                $db->quoteName('wt.from_stage_id') . ' = ' . $db->quoteName('wis.stage_id')
+                $db->quoteName('wt.workflow_id') . ' = ' . $db->quoteName('ws.workflow_id')
+                    . ' AND ' . $db->quoteName('wt.from_stage_id') . ' IN (' . $db->quoteName('wis.stage_id') . ', -1)'
             )
             ->join(
                 'INNER',
@@ -295,6 +312,10 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             ->where($db->quoteName('w.published') . ' = 1')
             ->where($db->quoteName('wt.published') . ' = 1')
             ->where($db->quoteName('war.published') . ' = 1')
+
+            // Each rule runs once per stay in a stage. Without this a transition that leaves the item where it
+            // is, as one from any stage does once it has moved the item, would fire again every delay.
+            ->where('NOT EXISTS (' . $alreadyRan . ')')
 
             // Least-recently-checked first, so rows that a filter keeps excluding cannot hold the front
             // of the queue forever. COALESCE because MySQL and PostgreSQL sort nulls differently.
@@ -353,7 +374,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
         return array_values(array_filter(
             $candidates,
-            static fn (DueAutomation $candidate): bool
+            static fn(DueAutomation $candidate): bool
             => !isset($excluded[$candidate->extension . '.' . $candidate->item_id])
         ));
     }
@@ -471,7 +492,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     private function markCandidatesChecked(array $candidates, string $now): void
     {
         $itemStateIds = array_values(array_unique(
-            array_map(static fn (DueAutomation $candidate): int => $candidate->item_state_id, $candidates)
+            array_map(static fn(DueAutomation $candidate): int => $candidate->item_state_id, $candidates)
         ));
 
         $db          = $this->getDatabase();
@@ -635,7 +656,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         if (!empty($eligibleRules)) {
             usort(
                 $eligibleRules,
-                static fn (array $a, array $b): int => [$a['deadline'], (int) $a['rule']->ordering, (int) $a['rule']->rule_id]
+                static fn(array $a, array $b): int => [$a['deadline'], (int) $a['rule']->ordering, (int) $a['rule']->rule_id]
                     <=> [$b['deadline'], (int) $b['rule']->ordering, (int) $b['rule']->rule_id]
             );
 
