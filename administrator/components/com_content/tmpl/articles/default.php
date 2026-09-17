@@ -270,7 +270,7 @@ $assoc = Associations::isEnabled();
                                         <div class="small mt-1">
                                             <span class="badge <?php echo $chipClass; ?> hasTooltip" <?php echo $chipTip !== '' ? ' title="' . htmlspecialchars($chipTip, ENT_QUOTES, 'UTF-8') . '"' : ''; ?>>
                                                 <span class="<?php echo $chipIcon; ?>" aria-hidden="true"></span>
-                                                <?php echo htmlspecialchars($upcoming->toStage, ENT_QUOTES, 'UTF-8'); ?>
+                                                <?php echo htmlspecialchars(Text::_($upcoming->toStage), ENT_QUOTES, 'UTF-8'); ?>
                                             </span>
                                         </div>
                                     <?php endif; ?>

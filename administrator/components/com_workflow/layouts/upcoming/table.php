@@ -72,7 +72,16 @@ $unitKeys = [
                     <?php endif; ?>
                 </td>
                 <?php if ($showWorkflow) : ?>
-                    <td><?php echo htmlspecialchars(Text::_($transition->workflowTitle), ENT_QUOTES, 'UTF-8'); ?></td>
+                    <td>
+                        <?php $workflowLabel = htmlspecialchars(Text::_($transition->workflowTitle), ENT_QUOTES, 'UTF-8'); ?>
+                        <?php if ($transition->workflowId > 0) : ?>
+                            <a href="<?php echo Route::_('index.php?option=com_workflow&task=workflow.edit&id=' . $transition->workflowId . '&extension=' . urlencode($transition->extension)); ?>">
+                                <?php echo $workflowLabel; ?>
+                            </a>
+                        <?php else : ?>
+                            <?php echo $workflowLabel; ?>
+                        <?php endif; ?>
+                    </td>
                 <?php endif; ?>
                 <td>
                     <span class="badge bg-secondary"><?php echo htmlspecialchars(Text::_($transition->fromStage), ENT_QUOTES, 'UTF-8'); ?></span>

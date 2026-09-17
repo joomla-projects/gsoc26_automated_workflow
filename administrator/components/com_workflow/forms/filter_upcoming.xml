@@ -17,6 +17,22 @@
 			<option value="">COM_WORKFLOW_UPCOMING_FILTER_WORKFLOW</option>
 		</field>
 		<field
+			name="stage_id"
+			type="sql"
+			label="COM_WORKFLOW_UPCOMING_FILTER_STAGE"
+			key_field="id"
+			value_field="title"
+			sql_select="s.id, s.title"
+			sql_from="#__workflow_stages AS s"
+			sql_join="#__workflows AS w ON w.id = s.workflow_id"
+			sql_where="s.published = 1"
+			sql_order="w.ordering, s.ordering"
+			translate="true"
+			class="js-select-submit-on-change"
+		>
+			<option value="">COM_WORKFLOW_UPCOMING_FILTER_STAGE</option>
+		</field>
+		<field
 			name="limit"
 			type="limitbox"
 			label="JGLOBAL_LIST_LIMIT"

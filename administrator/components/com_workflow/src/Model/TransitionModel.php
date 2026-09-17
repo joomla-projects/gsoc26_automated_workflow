@@ -397,16 +397,25 @@ class TransitionModel extends AdminModel
 
         $user = $this->getCurrentUser();
 
+        // Anyone but a super user may only keep the run-as user already saved or pick themselves, so the
+        // picker becomes a list of those two. Changing the type in place keeps the field where it is.
         if (!$user->authorise('core.admin')) {
-            $reachable = $this->groupsWithNoMorePermission(Access::getGroupsByUser((int) $user->id, false));
+            $choices = array_unique([
+                $this->storedRunAsUserId((int) $this->getState($this->getName() . '.id')),
+                (int) $user->id,
+            ]);
 
-            // Group id 0 does not exist, so a user allowed to delegate to nobody gets an empty picker.
-            $form->setFieldAttribute(
-                'run_as_user_id',
-                'groups',
-                implode(',', $reachable ?: [0]),
-                'automation'
-            );
+            $db    = $this->getDatabase();
+            $query = $db->getQuery(true)
+                ->select($db->quoteName(['id', 'name']))
+                ->from($db->quoteName('#__users'))
+                ->where($db->quoteName('id') . ' IN (' . implode(',', $choices) . ')')
+                ->order($db->quoteName('name'));
+
+            $form->setFieldAttribute('run_as_user_id', 'type', 'sql', 'automation');
+            $form->setFieldAttribute('run_as_user_id', 'key_field', 'id', 'automation');
+            $form->setFieldAttribute('run_as_user_id', 'value_field', 'name', 'automation');
+            $form->setFieldAttribute('run_as_user_id', 'query', (string) $query, 'automation');
         }
 
         // Import the appropriate plugin group.
@@ -514,7 +523,56 @@ class TransitionModel extends AdminModel
             }
         }
 
+        $builders = [
+            'item_filter'    => 'COM_WORKFLOW_AUTOMATION_FILTER_LABEL',
+            'fire_condition' => 'COM_WORKFLOW_AUTOMATION_CONDITION_LABEL',
+        ];
+
+        foreach ($builders as $key => $label) {
+            if ($this->hasIncompleteCheck(json_decode((string) ($data[$key] ?? ''), true))) {
+                $app->enqueueMessage(Text::sprintf('COM_WORKFLOW_AUTOMATION_ERROR_INCOMPLETE_CHECK', Text::_($label)), 'error');
+
+                return false;
+            }
+        }
+
         return true;
+    }
+
+    /**
+     * Whether a condition builder expression holds a check with no field, operator or value.
+     *
+     * The builder submits such checks rather than dropping them, so a save rejected here returns
+     * the expression to the editor to finish instead of losing it.
+     *
+     * @param   mixed  $node  A decoded expression or check, or null when there is none.
+     *
+     * @return  boolean
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function hasIncompleteCheck(mixed $node): bool
+    {
+        if (!\is_array($node)) {
+            return false;
+        }
+
+        if (\array_key_exists('items', $node)) {
+            foreach ((array) $node['items'] as $child) {
+                if ($this->hasIncompleteCheck($child)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        $value = $node['value'] ?? '';
+
+        return ($node['field'] ?? '') === ''
+            || ($node['operator'] ?? '') === ''
+            || $value === ''
+            || $value === [];
     }
 
     private function validateAutomation(array $automationRule, int $transitionId): bool
@@ -536,10 +594,9 @@ class TransitionModel extends AdminModel
             return false;
         }
 
-        // Checked on every save, not only when the field changes. The whole rule body is what runs
-        // with this user's permissions, so an editor who may not delegate here may not edit it at all.
-        if (!$this->mayDelegateTo($runAsUserId)) {
-            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_RUN_AS_TOO_HIGH'), 'error');
+        // The form only offers the allowed users, but a request can be crafted, so it is checked again here.
+        if (!$this->mayDelegateTo($runAsUserId, $transitionId)) {
+            $app->enqueueMessage(Text::_('COM_WORKFLOW_AUTOMATION_ERROR_RUN_AS_NOT_ALLOWED'), 'error');
 
             return false;
         }
@@ -553,83 +610,53 @@ class TransitionModel extends AdminModel
     }
 
     /**
-     * Whether the current user may hand execution to this account.
+     * Whether the current user may save a rule that runs as this account.
      *
-     * Every group the account belongs to must be one of the editor's own groups or an ancestor of
-     * one, because a child group inherits its parent's permissions and adds to them. This stops
-     * the obvious escalation but is not a proof, since explicit Deny settings can break the pattern.
+     * A super user may choose anyone. Anyone else may choose themselves or keep the account the rule
+     * already runs as, because the group tree cannot show whether one group holds more permissions
+     * than another.
      *
      * @param   integer  $candidateUserId  The account being named as the run-as user.
+     * @param   integer  $transitionId     The transition being saved, or 0 for a new one.
      *
      * @return  boolean
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function mayDelegateTo(int $candidateUserId): bool
+    private function mayDelegateTo(int $candidateUserId, int $transitionId): bool
     {
-        $user = Factory::getApplication()->getIdentity();
+        $user = $this->getCurrentUser();
 
-        if ((int) $user->id === $candidateUserId) {
-            return true;
-        }
-
-        if ($user->authorise('core.admin')) {
-            return true;
-        }
-
-        $parts     = explode('.', (string) Factory::getApplication()->getInput()->get('extension'));
-        $extension = array_shift($parts);
-        $candidate = Factory::getContainer()->get(UserFactoryInterface::class)->loadUserById($candidateUserId);
-
-        if ((int) $candidate->id === $candidateUserId) {
-            $candidateOutranksEditor = $candidate->authorise('core.admin')
-                || ($candidate->authorise('core.admin', $extension) && !$user->authorise('core.admin', $extension));
-
-            if ($candidateOutranksEditor) {
-                return false;
-            }
-        }
-
-        $candidateGroups = Access::getGroupsByUser($candidateUserId, false);
-
-        if ($candidateGroups === []) {
-            return true;
-        }
-
-        $reachable = $this->groupsWithNoMorePermission(Access::getGroupsByUser((int) $user->id, false));
-
-        return array_diff($candidateGroups, $reachable) === [];
+        return $user->authorise('core.admin')
+            || $candidateUserId === (int) $user->id
+            || $candidateUserId === $this->storedRunAsUserId($transitionId);
     }
 
     /**
-     * The groups that hold no more permission than the given ones, by tree position.
+     * The run-as user already stored for this transition, or 0 when there is no rule yet.
      *
-     * @param   int[]  $groupIds  The editor's own groups.
+     * @param   integer  $transitionId  The transition being saved.
      *
-     * @return  int[]
+     * @return  integer
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function groupsWithNoMorePermission(array $groupIds): array
+    private function storedRunAsUserId(int $transitionId): int
     {
-        if ($groupIds === []) {
-            return [];
+        if ($transitionId <= 0) {
+            return 0;
         }
 
         $db    = $this->getDatabase();
         $query = $db->getQuery(true)
-            ->select('DISTINCT ' . $db->quoteName('ancestor.id'))
-            ->from($db->quoteName('#__usergroups', 'own'))
-            ->join(
-                'INNER',
-                $db->quoteName('#__usergroups', 'ancestor'),
-                $db->quoteName('ancestor.lft') . ' <= ' . $db->quoteName('own.lft')
-                    . ' AND ' . $db->quoteName('ancestor.rgt') . ' >= ' . $db->quoteName('own.rgt')
-            )
-            ->whereIn($db->quoteName('own.id'), $groupIds);
+            ->select($db->quoteName('run_as_user_id'))
+            ->from($db->quoteName('#__workflow_automation_rules'))
+            ->where($db->quoteName('transition_id') . ' = :transitionId')
+            ->bind(':transitionId', $transitionId, ParameterType::INTEGER);
 
-        return array_map('intval', $db->setQuery($query)->loadColumn());
+        return (int) $db->setQuery($query)->loadResult();
     }
+
 
     /**
      * Whether an account holds the permission the scheduler will need at run time.

@@ -40,6 +40,10 @@
       this.config = JSON.parse(root.dataset.config || '{}');
       this.tree = this.deserialize(this.input.value);
 
+      // Simple mode joins checks with AND and nothing else. A rule saved with OR, sub-expressions or NOT
+      // opens in the full builder anyway, so switching expert mode off never hides part of a rule.
+      this.simple = !this.config.expert && this.fitsSimpleMode(this.tree);
+
       // { path, kind } while the AND/OR prompt for a new row is showing, otherwise null.
       this.pendingAdd = null;
 
@@ -108,16 +112,8 @@
 
     nodeToJson(node) {
       if (node.type === 'check') {
-        // Drop incomplete checks so they never serialise into a broken rule.
-        const emptyValue
-          = node.value === ''
-            || node.value === null
-            || (Array.isArray(node.value) && node.value.length === 0);
-
-        if (!node.field || emptyValue) {
-          return null;
-        }
-
+        // Kept even when incomplete: the server refuses to save it and the form comes back with the
+        // expression intact, instead of it being dropped without a word.
         const json = {
           field: node.field,
           operator: node.operator,
@@ -127,7 +123,7 @@
         return json;
       }
 
-      // Incomplete rows are dropped together with the operator that would have joined them.
+      // An empty sub-expression holds nothing the user entered, so it is dropped with its connector.
       const items = [];
       const ops = [];
 
@@ -160,6 +156,14 @@
         output.className = 'w-100 small';
         output.textContent = '';
       }
+    }
+
+    fitsSimpleMode(tree) {
+      return (
+        !tree.not
+        && tree.ops.every((op) => op === 'and')
+        && tree.items.every((item) => item.type === 'check' && !item.not)
+      );
     }
 
     emptyChain() {
@@ -216,6 +220,15 @@
       const path = pathEl ? pathEl.getAttribute('data-path') : '';
       const action = button.getAttribute('data-action');
       const chain = this.nodeAtPath(path);
+
+      if (action === 'add-check' && this.simple) {
+        if (chain.items.length >= 1) {
+          chain.ops.push('and');
+        }
+        chain.items.push(this.emptyCheck());
+        this.render();
+        return;
+      }
 
       if (action === 'add-check' || action === 'add-expression') {
         const kind = action === 'add-check' ? 'check' : 'chain';
@@ -345,7 +358,9 @@
             el(
               'div',
               { class: 'cb-band' },
-              this.renderOpSelect(node, index - 1),
+              this.simple
+                ? el('span', { class: 'cb-join-label', text: text.opAnd })
+                : this.renderOpSelect(node, index - 1),
             ),
           );
         }
@@ -449,16 +464,21 @@
           },
           '+ ' + text.addCheck,
         ),
-        el(
-          'button',
-          {
-            type: 'button',
-            class: 'btn btn-sm btn-success',
-            'data-action': 'add-expression',
-          },
-          '+ ' + text.addExpression,
-        ),
       );
+
+      if (!this.simple) {
+        addArea.appendChild(
+          el(
+            'button',
+            {
+              type: 'button',
+              class: 'btn btn-sm btn-success',
+              'data-action': 'add-expression',
+            },
+            '+ ' + text.addExpression,
+          ),
+        );
+      }
 
       if (this.config.preview && path === '' && this.tree.items.length > 0) {
         addArea.appendChild(
@@ -485,8 +505,10 @@
       return el(
         'div',
         { class: 'cb-leaf', 'data-path': path },
-        el('span', { class: 'cb-chip cb-chip-check', text: text.check }),
-        this.renderNot(node),
+        this.simple
+          ? null
+          : el('span', { class: 'cb-chip cb-chip-check', text: text.check }),
+        this.simple ? null : this.renderNot(node),
         el(
           'div',
           { class: 'cb-leaf-fields' },
