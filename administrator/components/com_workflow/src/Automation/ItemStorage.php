@@ -129,7 +129,63 @@ final class ItemStorage
     }
 
     /**
-     * Fills in each row's item title, keyed by that row's own extension.
+     * The category each item is filed in, keyed by item id.
+     *
+     * @param   int[]   $itemIds    The items to look up.
+     * @param   string  $extension  The workflow extension, e.g. com_content.article.
+     *
+     * @return  array<int, array{id: int, title: string, extension: string}>  Omits items the extension does not file.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function categoriesFor(array $itemIds, string $extension): array
+    {
+        $itemIds = array_values(array_unique(array_map('intval', $itemIds)));
+        $storage = $this->locate($extension);
+
+        if ($itemIds === [] || $storage === null) {
+            return [];
+        }
+
+        $categoryColumn = $this->columnFor($extension, 'catid');
+
+        if ($categoryColumn === null) {
+            return [];
+        }
+
+        $db    = $this->database;
+        $query = $db->getQuery(true)
+            ->select([
+                $db->quoteName('item.' . $storage['key'], 'item_id'),
+                $db->quoteName('category.id', 'category_id'),
+                $db->quoteName('category.title', 'category_title'),
+                $db->quoteName('category.extension', 'category_extension'),
+            ])
+            ->from($db->quoteName($storage['table'], 'item'))
+            ->join(
+                'INNER',
+                $db->quoteName('#__categories', 'category'),
+                $db->quoteName('category.id') . ' = ' . $db->quoteName('item.' . $categoryColumn)
+            )
+            ->whereIn($db->quoteName('item.' . $storage['key']), $itemIds);
+
+        $categories = [];
+
+        foreach ($db->setQuery($query)->loadAssocList() ?: [] as $row) {
+            $categories[(int) $row['item_id']] = [
+                'id'        => (int) $row['category_id'],
+                'title'     => (string) $row['category_title'],
+                'extension' => (string) $row['category_extension'],
+            ];
+        }
+
+        return $categories;
+    }
+
+    /**
+     * Fills in each row's item title and category, keyed by that row's own extension.
+     *
+     * Titles repeat, so the category is what tells two items of the same name apart.
      *
      * @param   object[]  $rows  Rows carrying item_id and extension.
      *
@@ -149,17 +205,28 @@ final class ItemStorage
             $itemIdsByExtension[$row->extension][] = (int) $row->item_id;
         }
 
-        $titles = [];
+        $titles     = [];
+        $categories = [];
 
         foreach ($itemIdsByExtension as $extension => $itemIds) {
             foreach ($this->titlesFor($itemIds, $extension) as $itemId => $title) {
                 // An item id is only unique within its own extension.
                 $titles[$extension . '.' . $itemId] = $title;
             }
+
+            foreach ($this->categoriesFor($itemIds, $extension) as $itemId => $category) {
+                $categories[$extension . '.' . $itemId] = $category;
+            }
         }
 
         foreach ($rows as $row) {
-            $row->item_title = $titles[$row->extension . '.' . $row->item_id] ?? null;
+            $key      = $row->extension . '.' . $row->item_id;
+            $category = $categories[$key] ?? null;
+
+            $row->item_title              = $titles[$key] ?? null;
+            $row->item_category_id        = $category['id'] ?? null;
+            $row->item_category_title     = $category['title'] ?? null;
+            $row->item_category_extension = $category['extension'] ?? null;
         }
 
         return $rows;
@@ -266,6 +333,12 @@ final class ItemStorage
         }
 
         if (!$table instanceof Table) {
+            return null;
+        }
+
+        // getColumnAlias() hands back the name unchanged when there is no alias, whether or not the
+        // table has such a column, so a table without categories would otherwise reach the query.
+        if (!$table->hasField($logicalName)) {
             return null;
         }
 

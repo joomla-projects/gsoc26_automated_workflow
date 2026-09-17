@@ -43,6 +43,7 @@ $user      = $this->getCurrentUser();
                             <tr>
                                 <th scope="col"><?php echo HTMLHelper::_('searchtools.sort', 'COM_WORKFLOW_LOGS_EXECUTED_AT', 'l.executed_at', $listDirn, $listOrder); ?></th>
                                 <th scope="col"><?php echo HTMLHelper::_('searchtools.sort', 'COM_WORKFLOW_LOGS_ITEM', 'l.item_id', $listDirn, $listOrder); ?></th>
+                                <th scope="col"><?php echo Text::_('JCATEGORY'); ?></th>
                                 <th scope="col"><?php echo Text::_('COM_WORKFLOW_LOGS_TRANSITION'); ?></th>
                                 <th scope="col"><?php echo Text::_('COM_WORKFLOW_LOGS_STAGES'); ?></th>
                                 <th scope="col"><?php echo Text::_('COM_WORKFLOW_LOGS_RUN_AS'); ?></th>
@@ -72,6 +73,13 @@ $user      = $this->getCurrentUser();
                                         <?php endif; ?>
                                         <?php if ($itemTitle !== '') : ?>
                                             <div class="small text-muted"><?php echo Text::sprintf('COM_WORKFLOW_LOGS_ITEM_ID_INLINE', (int) $item->item_id); ?></div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if (!empty($item->item_category_id)) : ?>
+                                            <a href="<?php echo Route::_('index.php?option=com_categories&task=category.edit&id=' . (int) $item->item_category_id . '&extension=' . urlencode((string) $item->item_category_extension)); ?>">
+                                                <?php echo $this->escape($item->item_category_title); ?>
+                                            </a>
                                         <?php endif; ?>
                                     </td>
                                     <td>
