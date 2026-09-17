@@ -374,7 +374,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
 
         return array_values(array_filter(
             $candidates,
-            static fn(DueAutomation $candidate): bool
+            static fn (DueAutomation $candidate): bool
             => !isset($excluded[$candidate->extension . '.' . $candidate->item_id])
         ));
     }
@@ -492,7 +492,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
     private function markCandidatesChecked(array $candidates, string $now): void
     {
         $itemStateIds = array_values(array_unique(
-            array_map(static fn(DueAutomation $candidate): int => $candidate->item_state_id, $candidates)
+            array_map(static fn (DueAutomation $candidate): int => $candidate->item_state_id, $candidates)
         ));
 
         $db          = $this->getDatabase();
@@ -656,7 +656,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         if (!empty($eligibleRules)) {
             usort(
                 $eligibleRules,
-                static fn(array $a, array $b): int => [$a['deadline'], (int) $a['rule']->ordering, (int) $a['rule']->rule_id]
+                static fn (array $a, array $b): int => [$a['deadline'], (int) $a['rule']->ordering, (int) $a['rule']->rule_id]
                     <=> [$b['deadline'], (int) $b['rule']->ordering, (int) $b['rule']->rule_id]
             );
 
