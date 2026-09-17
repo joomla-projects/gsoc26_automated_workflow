@@ -38,7 +38,8 @@ final class UpcomingTransition
      * @param   string|null     $delayUnit       minutes | hours | days | months.
      * @param   string|null     $cronExpression  Cron expression for a cron rule.
      * @param   boolean         $hasCondition    Whether a fire condition gates this move.
-     * @param   string          $workflowTitle   Owning workflow, set by the extension-wide query only.
+     * @param   string          $workflowTitle   Title of the owning workflow.
+     * @param   integer         $workflowId      Id of the owning workflow, or 0 when unknown.
      *
      * @since   __DEPLOY_VERSION__
      */
@@ -58,7 +59,8 @@ final class UpcomingTransition
         public readonly ?string $delayUnit,
         public readonly ?string $cronExpression,
         public readonly bool $hasCondition,
-        public readonly string $workflowTitle = ''
+        public readonly string $workflowTitle = '',
+        public readonly int $workflowId = 0
     ) {
     }
 }

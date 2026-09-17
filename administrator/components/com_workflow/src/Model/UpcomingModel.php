@@ -14,6 +14,7 @@ use Joomla\CMS\Factory;
 use Joomla\CMS\Form\Form;
 use Joomla\CMS\MVC\Model\ListModel;
 use Joomla\Component\Workflow\Administrator\Automation\UpcomingTransitionsCalculator;
+use Joomla\Database\ParameterType;
 
 // phpcs:disable PSR1.Files.SideEffects
 \defined('_JEXEC') or die;
@@ -58,12 +59,12 @@ class UpcomingModel extends ListModel
 
         $this->setState('filter.extension', $extension);
 
-        // list.limit, list.start and list.workflow_id all arrive through the parent.
+        // list.limit, list.start, list.workflow_id and list.stage_id all arrive through the parent.
         parent::populateState($ordering, $direction);
     }
 
     /**
-     * The filter form, with its workflow list narrowed to the current extension.
+     * The filter form, with its workflow and stage lists narrowed to what can be chosen.
      *
      * @param   array    $data      Data for the form.
      * @param   boolean  $loadData  Whether to load the form data.
@@ -77,14 +78,24 @@ class UpcomingModel extends ListModel
         $form = parent::getFilterForm($data, $loadData);
 
         if ($form instanceof Form) {
-            $db = $this->getDatabase();
+            $db         = $this->getDatabase();
+            $extension  = $db->quote((string) $this->getState('filter.extension'));
+            $workflowId = (int) $this->getState('list.workflow_id');
 
             // Narrowed here rather than in the XML, because the extension is only known at runtime.
             $form->setFieldAttribute(
                 'workflow_id',
                 'sql_where',
-                $db->quoteName('published') . ' = 1 AND ' . $db->quoteName('extension') . ' = '
-                    . $db->quote((string) $this->getState('filter.extension')),
+                $db->quoteName('published') . ' = 1 AND ' . $db->quoteName('extension') . ' = ' . $extension,
+                'list'
+            );
+
+            // The chosen workflow's stages, or every stage in the extension while no workflow is chosen.
+            $form->setFieldAttribute(
+                'stage_id',
+                'sql_where',
+                $db->quoteName('s.published') . ' = 1 AND ' . $db->quoteName('w.extension') . ' = ' . $extension
+                    . ($workflowId > 0 ? ' AND ' . $db->quoteName('s.workflow_id') . ' = ' . $workflowId : ''),
                 'list'
             );
         }
@@ -110,10 +121,11 @@ class UpcomingModel extends ListModel
         $limit      = (int) $this->getState('list.limit');
         $start      = (int) $this->getStart();
         $workflowId = (int) $this->getState('list.workflow_id');
+        $stageId    = $this->getStageFilter();
 
         return $workflowId > 0
-            ? $this->getCalculator()->forWorkflow($workflowId, $limit, $start)
-            : $this->getCalculator()->forExtension($extension, $limit, $start);
+            ? $this->getCalculator()->forWorkflow($workflowId, $limit, $start, $stageId)
+            : $this->getCalculator()->forExtension($extension, $limit, $start, $stageId);
     }
 
     /**
@@ -132,10 +144,43 @@ class UpcomingModel extends ListModel
         }
 
         $workflowId = (int) $this->getState('list.workflow_id');
+        $stageId    = $this->getStageFilter();
 
         return $workflowId > 0
-            ? $this->getCalculator()->countForWorkflow($workflowId)
-            : $this->getCalculator()->countForExtension($extension);
+            ? $this->getCalculator()->countForWorkflow($workflowId, $stageId)
+            : $this->getCalculator()->countForExtension($extension, $stageId);
+    }
+
+    /**
+     * The stage to filter by, or 0 for any stage.
+     *
+     * A stage that does not belong to the chosen workflow is ignored. It is left behind when the
+     * workflow filter changes, and the stage list no longer offers it, so honouring it would show an
+     * empty list with nothing on screen to explain why.
+     *
+     * @return  integer
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function getStageFilter(): int
+    {
+        $stageId    = (int) $this->getState('list.stage_id');
+        $workflowId = (int) $this->getState('list.workflow_id');
+
+        if ($stageId <= 0 || $workflowId <= 0) {
+            return max($stageId, 0);
+        }
+
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->select('1')
+            ->from($db->quoteName('#__workflow_stages'))
+            ->where($db->quoteName('id') . ' = :stageId')
+            ->where($db->quoteName('workflow_id') . ' = :workflowId')
+            ->bind(':stageId', $stageId, ParameterType::INTEGER)
+            ->bind(':workflowId', $workflowId, ParameterType::INTEGER);
+
+        return $db->setQuery($query)->loadResult() ? $stageId : 0;
     }
 
     /**

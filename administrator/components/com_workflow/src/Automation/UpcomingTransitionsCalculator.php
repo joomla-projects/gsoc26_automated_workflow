@@ -78,19 +78,20 @@ final class UpcomingTransitionsCalculator
      * @param   integer  $workflowId  The workflow id.
      * @param   integer  $limit       Page size, or 0 for every item. Defaults to the panel's cap.
      * @param   integer  $start       How many items to skip.
+     * @param   integer  $stageId     Only items currently in this stage, or 0 for any stage.
      *
      * @return  UpcomingTransition[]  Items needing attention first, then longest waiting.
      *
      * @since   __DEPLOY_VERSION__
      */
-    public function forWorkflow(int $workflowId, int $limit = self::MAX_ITEMS_PER_PANEL, int $start = 0): array
+    public function forWorkflow(int $workflowId, int $limit = self::MAX_ITEMS_PER_PANEL, int $start = 0, int $stageId = 0): array
     {
         if ($limit <= 0) {
-            return $this->buildFromRows($this->fetchRowsForWorkflow($workflowId));
+            return $this->buildFromRows($this->fetchRowsForWorkflow($workflowId, [], $stageId));
         }
 
         $db    = $this->database;
-        $scope = $this->inScopeItemStateQuery()
+        $scope = $this->inStage($this->inScopeItemStateQuery(), $stageId)
             ->where($db->quoteName('wt.workflow_id') . ' = :workflowId')
             ->bind(':workflowId', $workflowId, ParameterType::INTEGER);
 
@@ -108,15 +109,16 @@ final class UpcomingTransitionsCalculator
      * gets listed, for the same reason as countForExtension().
      *
      * @param   integer  $workflowId  The workflow id.
+     * @param   integer  $stageId     Only items currently in this stage, or 0 for any stage.
      *
      * @return  integer
      *
      * @since   __DEPLOY_VERSION__
      */
-    public function countForWorkflow(int $workflowId): int
+    public function countForWorkflow(int $workflowId, int $stageId = 0): int
     {
         $db    = $this->database;
-        $query = $this->inScopeItemStateQuery()
+        $query = $this->inStage($this->inScopeItemStateQuery(), $stageId)
             ->select('COUNT(DISTINCT ' . $db->quoteName('wis.id') . ')')
             ->where($db->quoteName('wt.workflow_id') . ' = :workflowId')
             ->bind(':workflowId', $workflowId, ParameterType::INTEGER);
@@ -132,19 +134,20 @@ final class UpcomingTransitionsCalculator
      * @param   integer  $limit      Page size, or 0 for every item, which is what the user asks
      *                               for by choosing All in the limit box.
      * @param   integer  $start      How many items to skip.
+     * @param   integer  $stageId    Only items currently in this stage, or 0 for any stage.
      *
      * @return  UpcomingTransition[]  Items needing attention first, then longest waiting.
      *
      * @since   __DEPLOY_VERSION__
      */
-    public function forExtension(string $extension, int $limit = 0, int $start = 0): array
+    public function forExtension(string $extension, int $limit = 0, int $start = 0, int $stageId = 0): array
     {
         if ($limit <= 0) {
-            return $this->buildFromRows($this->fetchRowsForExtension($extension));
+            return $this->buildFromRows($this->fetchRowsForExtension($extension, [], $stageId));
         }
 
         $db    = $this->database;
-        $scope = $this->inScopeItemStateQuery()
+        $scope = $this->inStage($this->inScopeItemStateQuery(), $stageId)
             ->where($db->quoteName('wis.extension') . ' = :extension')
             ->bind(':extension', $extension);
 
@@ -164,16 +167,17 @@ final class UpcomingTransitionsCalculator
      * filters it out is counted here and not shown, because only evaluating the filter in PHP
      * can tell them apart, which is the work pagination exists to avoid.
      *
-     * @param   string  $extension  The workflow extension.
+     * @param   string   $extension  The workflow extension.
+     * @param   integer  $stageId    Only items currently in this stage, or 0 for any stage.
      *
      * @return  integer
      *
      * @since   __DEPLOY_VERSION__
      */
-    public function countForExtension(string $extension): int
+    public function countForExtension(string $extension, int $stageId = 0): int
     {
         $db    = $this->database;
-        $query = $this->inScopeItemStateQuery()
+        $query = $this->inStage($this->inScopeItemStateQuery(), $stageId)
             ->select('COUNT(DISTINCT ' . $db->quoteName('wis.id') . ')')
             ->where($db->quoteName('wis.extension') . ' = :extension')
             ->bind(':extension', $extension);
@@ -374,6 +378,25 @@ final class UpcomingTransitionsCalculator
     }
 
     /**
+     * Narrows a query on #__workflow_item_state as wis to items currently in one stage.
+     *
+     * @param   QueryInterface  $query    The query to narrow.
+     * @param   integer         $stageId  The stage, or 0 to leave the query as it is.
+     *
+     * @return  QueryInterface
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function inStage(QueryInterface $query, int $stageId): QueryInterface
+    {
+        if ($stageId > 0) {
+            $query->where($this->database->quoteName('wis.stage_id') . ' = ' . $stageId);
+        }
+
+        return $query;
+    }
+
+    /**
      * Applies the display order: items needing attention first, then the longest waiting, and
      * within a single item the transition order, which settles ties the way the scheduler does.
      *
@@ -398,16 +421,17 @@ final class UpcomingTransitionsCalculator
      * Loads the candidate rows for a set of item states in a workflow.
      *
      * @param   integer  $workflowId    The workflow id.
-     * @param   int[]    $itemStateIds  The item state rows to report on.
+     * @param   int[]    $itemStateIds  The item state rows to report on, or none for all of them.
+     * @param   integer  $stageId       Only items currently in this stage, or 0 for any stage.
      *
      * @return  object[]
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function fetchRowsForWorkflow(int $workflowId, array $itemStateIds = []): array
+    private function fetchRowsForWorkflow(int $workflowId, array $itemStateIds = [], int $stageId = 0): array
     {
         $db    = $this->database;
-        $query = $this->baseRowsQuery()
+        $query = $this->inStage($this->baseRowsQuery(), $stageId)
             ->where($db->quoteName('wt.workflow_id') . ' = :workflowId')
             ->bind(':workflowId', $workflowId, ParameterType::INTEGER);
 
@@ -421,18 +445,18 @@ final class UpcomingTransitionsCalculator
     /**
      * Loads the candidate rows for every workflow under an extension.
      *
-     * @param   string  $extension      The workflow extension.
-     * @param   int[]   $itemStateIds   The item state rows to report on, or none for all of them.
+     * @param   string   $extension     The workflow extension.
+     * @param   int[]    $itemStateIds  The item state rows to report on, or none for all of them.
+     * @param   integer  $stageId       Only items currently in this stage, or 0 for any stage.
      *
      * @return  object[]
      *
      * @since   __DEPLOY_VERSION__
      */
-    private function fetchRowsForExtension(string $extension, array $itemStateIds = []): array
+    private function fetchRowsForExtension(string $extension, array $itemStateIds = [], int $stageId = 0): array
     {
         $db    = $this->database;
-        $query = $this->baseRowsQuery()
-            ->select($db->quoteName('w.title', 'workflow_title'))
+        $query = $this->inStage($this->baseRowsQuery(), $stageId)
             ->where($db->quoteName('wis.extension') . ' = :extension')
             ->bind(':extension', $extension);
 
@@ -498,6 +522,8 @@ final class UpcomingTransitionsCalculator
                     $db->quoteName('war.item_filter'),
                     $db->quoteName('war.fire_condition'),
                     $db->quoteName('wt.ordering'),
+                    $db->quoteName('w.id', 'workflow_id'),
+                    $db->quoteName('w.title', 'workflow_title'),
                 ]
             )
             ->from($db->quoteName('#__workflow_item_state', 'wis'));
@@ -565,7 +591,8 @@ final class UpcomingTransitionsCalculator
             delayUnit: $row->delay_unit,
             cronExpression: $row->cron_expression,
             hasCondition: $hasCondition,
-            workflowTitle: (string) ($row->workflow_title ?? '')
+            workflowTitle: (string) ($row->workflow_title ?? ''),
+            workflowId: (int) ($row->workflow_id ?? 0)
         );
     }
 
