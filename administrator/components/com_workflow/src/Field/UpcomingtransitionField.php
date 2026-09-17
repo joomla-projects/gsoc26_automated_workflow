@@ -41,11 +41,48 @@ class UpcomingtransitionField extends FormField
     protected $type = 'Upcomingtransition';
 
     /**
+     * Result of buildCard(), kept so renderField() and getInput() do not run the calculator twice.
+     *
+     * @var string|null
+     * @since __DEPLOY_VERSION__
+     */
+    private $card;
+
+    /**
      * @return string
      *
      * @since __DEPLOY_VERSION__
      */
     protected function getInput()
+    {
+        if ($this->card === null) {
+            $this->card = $this->buildCard();
+        }
+
+        return $this->card;
+    }
+
+    /**
+     * Drops the label and wrapper when there is nothing pending, the way SpacerField does, so the
+     * sidebar does not show an empty row on unsaved items.
+     *
+     * @param   array  $options  Rendering options.
+     *
+     * @return  string
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    public function renderField($options = [])
+    {
+        return $this->getInput() === '' ? '' : parent::renderField($options);
+    }
+
+    /**
+     * @return string
+     *
+     * @since __DEPLOY_VERSION__
+     */
+    private function buildCard()
     {
         $itemId    = (int) $this->form->getValue('id');
         $extension = (string) $this->form->getName();

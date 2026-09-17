@@ -48,7 +48,7 @@ endif;
             $itemLabel      = $itemTitle !== '' ? $itemTitle : (string) (int) $entry->item_id;
             ?>
             <tr>
-                <td><?php echo HTMLHelper::_('date', $entry->executed_at, Text::_('DATE_FORMAT_LC2')); ?></td>
+                <td><?php echo HTMLHelper::_('date', $entry->executed_at, Text::_('DATE_FORMAT_LC5')); ?></td>
                 <td>
                     <?php if ($itemEditLink) : ?>
                         <a href="<?php echo $itemEditLink; ?>"><?php echo $this->escape($itemLabel); ?></a>

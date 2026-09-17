@@ -153,6 +153,15 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
         // an exception still moves to the back of the queue instead of being re-picked every run.
         $this->markCandidatesChecked($candidates, $now);
 
+
+        // Dropped after the stamp, never before, or a trashed item would hold its place at the front
+        // of the least-recently-checked queue forever and crowd out live ones.
+        $candidates = $this->withoutTrashedOrArchived($candidates);
+
+        if ($candidates === []) {
+            return TaskStatus::OK;
+        }
+
         $candidatesByItem = [];
 
         foreach ($candidates as $candidate) {
@@ -302,7 +311,7 @@ final class WorkflowTransition extends CMSPlugin implements SubscriberInterface
             $db->setQuery($overduePairsQuery)->loadObjectList() ?: []
         );
 
-        return $this->withoutTrashedOrArchived($candidates);
+        return $candidates;
     }
 
     /**
