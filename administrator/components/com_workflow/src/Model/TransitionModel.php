@@ -523,7 +523,56 @@ class TransitionModel extends AdminModel
             }
         }
 
+        $builders = [
+            'item_filter'    => 'COM_WORKFLOW_AUTOMATION_FILTER_LABEL',
+            'fire_condition' => 'COM_WORKFLOW_AUTOMATION_CONDITION_LABEL',
+        ];
+
+        foreach ($builders as $key => $label) {
+            if ($this->hasIncompleteCheck(json_decode((string) ($data[$key] ?? ''), true))) {
+                $app->enqueueMessage(Text::sprintf('COM_WORKFLOW_AUTOMATION_ERROR_INCOMPLETE_CHECK', Text::_($label)), 'error');
+
+                return false;
+            }
+        }
+
         return true;
+    }
+
+    /**
+     * Whether a condition builder expression holds a check with no field, operator or value.
+     *
+     * The builder submits such checks rather than dropping them, so a save rejected here returns
+     * the expression to the editor to finish instead of losing it.
+     *
+     * @param   mixed  $node  A decoded expression or check, or null when there is none.
+     *
+     * @return  boolean
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function hasIncompleteCheck(mixed $node): bool
+    {
+        if (!\is_array($node)) {
+            return false;
+        }
+
+        if (\array_key_exists('items', $node)) {
+            foreach ((array) $node['items'] as $child) {
+                if ($this->hasIncompleteCheck($child)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        $value = $node['value'] ?? '';
+
+        return ($node['field'] ?? '') === ''
+            || ($node['operator'] ?? '') === ''
+            || $value === ''
+            || $value === [];
     }
 
     private function validateAutomation(array $automationRule, int $transitionId): bool

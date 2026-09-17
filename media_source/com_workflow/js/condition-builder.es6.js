@@ -107,17 +107,9 @@
     }
 
     nodeToJson(node) {
-      if (node.type === 'check') {
-        // Drop incomplete checks so they never serialise into a broken rule.
-        const emptyValue
-          = node.value === ''
-            || node.value === null
-            || (Array.isArray(node.value) && node.value.length === 0);
-
-        if (!node.field || emptyValue) {
-          return null;
-        }
-
+      if (node.type === "check") {
+        // Kept even when incomplete: the server refuses to save it and the form comes back with the
+        // expression intact, instead of it being dropped without a word.
         const json = {
           field: node.field,
           operator: node.operator,
@@ -127,7 +119,7 @@
         return json;
       }
 
-      // Incomplete rows are dropped together with the operator that would have joined them.
+      // An empty sub-expression holds nothing the user entered, so it is dropped with its connector.
       const items = [];
       const ops = [];
 
@@ -135,7 +127,7 @@
         const childJson = this.nodeToJson(child);
         if (childJson === null) return;
         if (items.length > 0) {
-          ops.push(node.ops[index - 1] === 'or' ? 'or' : 'and');
+          ops.push(node.ops[index - 1] === "or" ? "or" : "and");
         }
         items.push(childJson);
       });
