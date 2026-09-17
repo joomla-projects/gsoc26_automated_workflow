@@ -24,6 +24,7 @@ use Joomla\Component\Workflow\Administrator\Automation\BuiltinConditionFields;
 use Joomla\Database\DatabaseInterface;
 use Joomla\Database\ParameterType;
 use Joomla\Event\DispatcherInterface;
+use Joomla\Registry\Registry;
 
 /**
  * Renders one automation condition builder.
@@ -79,6 +80,7 @@ class ConditionbuilderField extends FormField
             'valueOptions' => $this->getValueChoices($availableFields),
             'text'         => $this->getInterfaceText(),
             'preview'      => $this->getPreviewConfig(),
+            'expert'       => $this->isExpertMode(),
         ]);
 
         return '<div class="condition-builder" data-condition-builder data-config="'
@@ -305,6 +307,20 @@ class ConditionbuilderField extends FormField
             'next'               => Text::_('JNEXT'),
             'close'              => Text::_('JCLOSE'),
         ];
+    }
+
+    /**
+     * Whether the Workflow Automation plugin is set to offer OR, sub-expressions and NOT.
+     *
+     * @return  boolean
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function isExpertMode(): bool
+    {
+        $plugin = PluginHelper::getPlugin('workflow', 'automation');
+
+        return \is_object($plugin) && (int) (new Registry($plugin->params))->get('expert_mode', 0) === 1;
     }
 
     /**
