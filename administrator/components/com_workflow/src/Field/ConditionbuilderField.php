@@ -19,6 +19,7 @@ use Joomla\CMS\Factory;
 use Joomla\CMS\Form\FormField;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Plugin\PluginHelper;
+use Joomla\CMS\Router\Route;
 use Joomla\CMS\Session\Session;
 use Joomla\Component\Workflow\Administrator\Automation\BuiltinConditionFields;
 use Joomla\Database\DatabaseInterface;
@@ -81,6 +82,7 @@ class ConditionbuilderField extends FormField
             'text'         => $this->getInterfaceText(),
             'preview'      => $this->getPreviewConfig(),
             'expert'       => $this->isExpertMode(),
+            'expertUrl'    => $this->expertModeUrl(),
         ]);
 
         return '<div class="condition-builder" data-condition-builder data-config="'
@@ -282,6 +284,8 @@ class ConditionbuilderField extends FormField
             : 'COM_WORKFLOW_AUTOMATION_BUILDER_EMPTY_CONDITION';
         return [
             'addCheck'           => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_CHECK'),
+            'expertHint'         => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EXPERT_HINT'),
+            'expertLink'         => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_EXPERT_LINK'),
             'addExpression'      => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_ADD_EXPRESSION'),
             'remove'             => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_REMOVE'),
             'check'              => Text::_('COM_WORKFLOW_AUTOMATION_BUILDER_CHECK'),
@@ -321,6 +325,34 @@ class ConditionbuilderField extends FormField
         $plugin = PluginHelper::getPlugin('workflow', 'automation');
 
         return \is_object($plugin) && (int) (new Registry($plugin->params))->get('expert_mode', 0) === 1;
+    }
+
+    /**
+     * Where Expert Mode is switched on, for the hint the simple builder shows.
+     *
+     * @return  string  The plugin's settings link, or '' when this user may not open it.
+     *
+     * @since   __DEPLOY_VERSION__
+     */
+    private function expertModeUrl(): string
+    {
+        if ($this->isExpertMode() || !Factory::getApplication()->getIdentity()->authorise('core.manage', 'com_plugins')) {
+            return '';
+        }
+
+        $db    = Factory::getContainer()->get(DatabaseInterface::class);
+        $query = $db->getQuery(true)
+            ->select($db->quoteName('extension_id'))
+            ->from($db->quoteName('#__extensions'))
+            ->where($db->quoteName('type') . ' = ' . $db->quote('plugin'))
+            ->where($db->quoteName('folder') . ' = ' . $db->quote('workflow'))
+            ->where($db->quoteName('element') . ' = ' . $db->quote('automation'));
+
+        $extensionId = (int) $db->setQuery($query)->loadResult();
+
+        return $extensionId > 0
+            ? Route::_('index.php?option=com_plugins&task=plugin.edit&extension_id=' . $extensionId, false)
+            : '';
     }
 
     /**
