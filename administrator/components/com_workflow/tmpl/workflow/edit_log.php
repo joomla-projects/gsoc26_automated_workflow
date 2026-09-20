@@ -16,6 +16,7 @@ use Joomla\CMS\Router\Route;
 
 /** @var \Joomla\Component\Workflow\Administrator\View\Workflow\HtmlView $this */
 
+$arrow = $this->getLanguage()->isRtl() ? 'arrow-left' : 'arrow-right';
 if (empty($this->automationLog)) : ?>
     <div class="alert alert-info" role="alert">
         <span class="icon-info-circle" aria-hidden="true"></span>
@@ -50,7 +51,7 @@ endif;
             ?>
             <tr>
                 <td><?php echo HTMLHelper::_('date', $entry->executed_at, Text::_('DATE_FORMAT_LC5')); ?></td>
-                <td>
+                <th scope="row">
                     <?php if ($itemEditLink) : ?>
                         <a href="<?php echo $itemEditLink; ?>"><?php echo $this->escape($itemLabel); ?></a>
                     <?php else : ?>
@@ -59,7 +60,7 @@ endif;
                     <?php if ($itemTitle !== '') : ?>
                         <div class="small text-muted"><?php echo Text::sprintf('COM_WORKFLOW_LOGS_ITEM_ID_INLINE', (int) $entry->item_id); ?></div>
                     <?php endif; ?>
-                </td>
+                </th>
                 <td>
                     <?php if (!empty($entry->item_category_id)) : ?>
                         <a href="<?php echo Route::_('index.php?option=com_categories&task=category.edit&id=' . (int) $entry->item_category_id . '&extension=' . urlencode((string) $entry->item_category_extension)); ?>">
@@ -83,7 +84,7 @@ endif;
                 </td>
                 <td>
                     <span class="badge bg-secondary"><?php echo $this->escape(Text::_((string) $entry->from_stage)); ?></span>
-                    <span class="icon-arrow-right icon-fw" aria-hidden="true"></span>
+                    <span class="icon-<?php echo $arrow; ?> icon-fw" aria-hidden="true"></span>
                     <span class="badge bg-secondary"><?php echo $this->escape(Text::_((string) $entry->to_stage)); ?></span>
                 </td>
                 <td><?php echo $this->escape((string) $entry->run_as_name); ?></td>

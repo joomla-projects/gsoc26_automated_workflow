@@ -43,7 +43,6 @@ class LogsModel extends ListModel
                 'l.executed_at',
                 'run_as_user_id',
                 'l.run_as_user_id',
-
             ];
         }
 

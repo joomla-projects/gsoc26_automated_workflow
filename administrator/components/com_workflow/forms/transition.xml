@@ -27,7 +27,7 @@
 			sql_from="#__workflow_stages"
 			sql_order="ordering"
 			translate="true"
-		>
+			>
 			<option value="-1">JALL</option>
 		</field>
 		<field
@@ -58,7 +58,7 @@
 			class="form-select-color-state"
 			default="1"
 			validate="options"
-		>
+			>
 			<option value="1">JENABLED</option>
 			<option value="0">JDISABLED</option>
 			<option value="-2">JTRASHED</option>
@@ -91,7 +91,7 @@
 				label="COM_WORKFLOW_AUTOMATION_ENABLE_TRANSITION_LABEL"
 				description="COM_WORKFLOW_AUTOMATION_ENABLE_TRANSITION_DESC"
 				default="0"
-			>
+				>
 				<option value="0">JNO</option>
 				<option value="1">JYES</option>
 			</field>

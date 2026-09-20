@@ -65,7 +65,7 @@ $user      = $this->getCurrentUser();
                                 ?>
                                 <tr>
                                     <td><?php echo HTMLHelper::_('date', $item->executed_at, Text::_('DATE_FORMAT_LC5')); ?></td>
-                                    <td>
+                                    <th scope="row">
                                         <?php if ($editLink) : ?>
                                             <a href="<?php echo $editLink; ?>"><?php echo $this->escape($itemLabel); ?></a>
                                         <?php else : ?>
@@ -74,7 +74,7 @@ $user      = $this->getCurrentUser();
                                         <?php if ($itemTitle !== '') : ?>
                                             <div class="small text-muted"><?php echo Text::sprintf('COM_WORKFLOW_LOGS_ITEM_ID_INLINE', (int) $item->item_id); ?></div>
                                         <?php endif; ?>
-                                    </td>
+                                    </th>
                                     <td>
                                         <?php if (!empty($item->item_category_id)) : ?>
                                             <a href="<?php echo Route::_('index.php?option=com_categories&task=category.edit&id=' . (int) $item->item_category_id . '&extension=' . urlencode((string) $item->item_category_extension)); ?>">

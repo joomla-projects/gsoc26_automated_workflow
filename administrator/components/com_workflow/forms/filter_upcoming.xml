@@ -13,7 +13,7 @@
 			sql_order="ordering"
 			translate="true"
 			class="js-select-submit-on-change"
-		>
+			>
 			<option value="">COM_WORKFLOW_UPCOMING_FILTER_WORKFLOW</option>
 		</field>
 		<field
@@ -29,7 +29,7 @@
 			sql_order="w.ordering, s.ordering"
 			translate="true"
 			class="js-select-submit-on-change"
-		>
+			>
 			<option value="">COM_WORKFLOW_UPCOMING_FILTER_STAGE</option>
 		</field>
 		<field

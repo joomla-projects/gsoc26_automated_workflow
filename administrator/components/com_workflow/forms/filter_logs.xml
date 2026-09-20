@@ -13,7 +13,7 @@
 			type="list"
 			label="COM_WORKFLOW_LOGS_RESULT"
 			class="js-select-submit-on-change"
-		>
+			>
 			<option value="">COM_WORKFLOW_LOGS_SELECT_RESULT</option>
 			<option value="ok">COM_WORKFLOW_LOGS_RESULT_OK</option>
 			<option value="failed">COM_WORKFLOW_LOGS_RESULT_FAILED</option>
@@ -29,7 +29,7 @@
 			default="l.executed_at DESC"
 			class="js-select-submit-on-change"
 			validate="options"
-		>
+			>
 			<option value="">JGLOBAL_SORT_BY</option>
 			<option value="l.executed_at ASC">COM_WORKFLOW_LOGS_EXECUTED_AT_ASC</option>
 			<option value="l.executed_at DESC">COM_WORKFLOW_LOGS_EXECUTED_AT_DESC</option>

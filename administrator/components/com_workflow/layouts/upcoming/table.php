@@ -10,6 +10,7 @@
 
 defined('_JEXEC') or die;
 
+use Joomla\CMS\Factory;
 use Joomla\CMS\HTML\HTMLHelper;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Router\Route;
@@ -24,6 +25,7 @@ use Joomla\Component\Workflow\Administrator\Automation\RelativeTime;
  */
 $items        = $displayData['items'] ?? [];
 $showWorkflow = (bool) ($displayData['showWorkflow'] ?? false);
+$arrow        = Factory::getApplication()->getLanguage()->isRtl() ? 'arrow-left' : 'arrow-right';
 
 if (empty($items)) : ?>
     <div class="alert alert-info" role="alert">
@@ -57,7 +59,7 @@ $unitKeys = [
     <tbody>
         <?php foreach ($items as $transition) : ?>
             <tr>
-                <td>
+                <th scope="row">
                     <?php
                     $itemLabel = $transition->itemTitle !== ''
                         ? $transition->itemTitle
@@ -70,7 +72,7 @@ $unitKeys = [
                     <?php else : ?>
                         <?php echo htmlspecialchars($itemLabel, ENT_QUOTES, 'UTF-8'); ?>
                     <?php endif; ?>
-                </td>
+                </th>
                 <?php if ($showWorkflow) : ?>
                     <td>
                         <?php $workflowLabel = htmlspecialchars(Text::_($transition->workflowTitle), ENT_QUOTES, 'UTF-8'); ?>
@@ -85,7 +87,7 @@ $unitKeys = [
                 <?php endif; ?>
                 <td>
                     <span class="badge bg-secondary"><?php echo htmlspecialchars(Text::_($transition->fromStage), ENT_QUOTES, 'UTF-8'); ?></span>
-                    <span class="icon-arrow-right icon-fw" aria-hidden="true"></span>
+                    <span class="icon-<?php echo $arrow; ?> icon-fw" aria-hidden="true"></span>
                     <span class="badge bg-secondary"><?php echo htmlspecialchars(Text::_($transition->toStage), ENT_QUOTES, 'UTF-8'); ?></span>
                 </td>
                 <td>

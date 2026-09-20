@@ -62,7 +62,7 @@ class WorkflowTransitionEvent extends AbstractEvent
      *
      * @return  array
      *
-     * @since   6.2.0
+     * @since   __DEPLOY_VERSION__
      */
     protected function onGetPks($value): array
     {
@@ -74,7 +74,7 @@ class WorkflowTransitionEvent extends AbstractEvent
      *
      * @return  array
      *
-     * @since   6.2.0
+     * @since   __DEPLOY_VERSION__
      */
     public function getPks(): array
     {
@@ -88,7 +88,7 @@ class WorkflowTransitionEvent extends AbstractEvent
      *
      * @return  string
      *
-     * @since   6.2.0
+     * @since   __DEPLOY_VERSION__
      */
     protected function onGetExtension($value): string
     {
@@ -100,7 +100,7 @@ class WorkflowTransitionEvent extends AbstractEvent
      *
      * @return  string
      *
-     * @since   6.2.0
+     * @since   __DEPLOY_VERSION__
      */
     public function getExtension(): string
     {
@@ -114,7 +114,7 @@ class WorkflowTransitionEvent extends AbstractEvent
      *
      * @return  object
      *
-     * @since   6.2.0
+     * @since   __DEPLOY_VERSION__
      */
     protected function onGetTransition($value): object
     {
@@ -126,7 +126,7 @@ class WorkflowTransitionEvent extends AbstractEvent
      *
      * @return  object
      *
-     * @since   6.2.0
+     * @since   __DEPLOY_VERSION__
      */
     public function getTransition(): object
     {
@@ -152,7 +152,7 @@ class WorkflowTransitionEvent extends AbstractEvent
      *
      * @return string
      *
-     * @since 6.2.0
+     * @since __DEPLOY_VERSION__
      */
     public function getTriggeredBy(): string
     {

@@ -657,7 +657,6 @@ class TransitionModel extends AdminModel
         return (int) $db->setQuery($query)->loadResult();
     }
 
-
     /**
      * Whether an account holds the permission the scheduler will need at run time.
      *
