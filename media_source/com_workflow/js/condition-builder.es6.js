@@ -77,13 +77,6 @@
       if (!parsed || typeof parsed !== 'object') {
         return this.emptyChain();
       }
-      // { op, children } is an old development format. Warn rather than drop it silently.
-      if (parsed.op !== undefined || parsed.children !== undefined) {
-        console.warn(
-          '[condition-builder] Discarding a condition stored in the old group format; rebuild and save it.',
-        );
-        return this.emptyChain();
-      }
       return this.nodeFromJson(parsed);
     }
 
@@ -480,6 +473,11 @@
         );
       }
 
+      const expertHint
+        = this.simple && path === '' && text.expertHint
+          ? this.renderExpertHint()
+          : null;
+
       if (this.config.preview && path === '' && this.tree.items.length > 0) {
         addArea.appendChild(
           el(
@@ -492,12 +490,46 @@
             text.preview,
           ),
         );
+
+        // Before the output, which takes a line of its own, so the hint stays on the button row.
+        if (expertHint) {
+          addArea.appendChild(expertHint);
+        }
+
         addArea.appendChild(
-          el('div', { class: 'w-100 small', 'data-role': 'preview-output' }),
+          el('div', {
+            class: 'w-100 small',
+            'data-role': 'preview-output',
+          }),
         );
+      } else if (expertHint) {
+        addArea.appendChild(expertHint);
       }
 
       return addArea;
+    }
+
+    renderExpertHint() {
+      const text = this.config.text;
+      // One sentence with %s where the link goes, so it stays translatable as a whole.
+      const [before, after] = text.expertHint.split('%s');
+      const hint = el(
+        'div',
+        { class: 'small text-muted' },
+        before || '',
+      );
+
+      hint.appendChild(
+        this.config.expertUrl
+          ? el('a', {
+              href: this.config.expertUrl,
+              text: text.expertLink || '',
+            })
+          : document.createTextNode(text.expertLink || ''),
+      );
+      hint.appendChild(document.createTextNode(after || ''));
+
+      return hint;
     }
 
     renderCheck(node, path) {
